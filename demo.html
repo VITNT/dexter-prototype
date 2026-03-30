@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Amazing Project</title>
+  <style>
+    button {
+      margin-top: 20px;
+      padding: 10px 16px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Camera Test</h1>
+
+  <video id="videoEl" autoplay playsinline muted></video>
+
+  <button onclick="startCamera()">Start Camera</button>
+
+  <script>
+    async function startCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+        video: true
+        });
+
+        document.getElementById('videoEl').srcObject = stream;
+    } catch (err) {
+        console.error(err);
+    }
+    }
+  </script>
+
+</body>
+</html>
