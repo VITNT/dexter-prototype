@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>ASL Recording Studio</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            text-align: center;
+        }
+
+        button {
+            margin-top: 10px;
+            padding: 10px 16px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .collector-ui {
+            margin-top: 20px;
+            padding: 15px;
+            border: 2px dashed lime;
+            display: inline-block;
+            border-radius: 8px;
+        }
+
+        input {
+            padding: 10px;
+            font-size: 16px;
+            width: 150px;
+        }
+    </style>
+</head>
+
+<body>
+
+
+    <h1>Recording Studio</h1>
+
+    <div style="position: relative; width: 640px; height: 480px; margin: 0 auto;">
+        <video id="videoEl" autoplay playsinline muted webkit-playsinline
+            style="position: absolute; top:0; left:0; width:100%; height:100%;"></video>
+        <canvas class="canvasEl"
+            style="position: absolute; top:0; left:0; width:100%; height:100%; z-index: 10; pointer-events: none;"></canvas>
+    </div>
+
+
+    <div>
+        <button id="camBtn" onclick="window.startCamera()">Start Camera</button>
+        <button id="flipBtn" onclick="window.flipCamera()">Flip Camera</button>
+        <button id="modeBtn" onclick="window.toggleMode()" style="background-color: #ff9800;">Mode: Hands Only</button>
+    </div>
+
+
+    <div class="collector-ui">
+        <h3>Dataset Recorder</h3>
+        <input type="text" id="gestureName" placeholder="e.g., J or Z" />
+        <button id="recordBtn" onclick="window.recordGesture()">🔴 Record 1 Second</button>
+        <p id="recordStatus" style="color: yellow; margin-top: 10px;">Ready to record...</p>
+    </div>
+
+
+    <script type="module" src="recorder.js"></script>
+
+
+</body>
+
+</html>
