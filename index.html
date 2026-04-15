@@ -1,24 +1,111 @@
 <!DOCTYPE html>
 <html lang="en">
 
+
 <head>
   <meta charset="UTF-8" />
-  <title>Amazing Project</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ASL Translate Real Time</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fingerpose@0.1.0/dist/fingerpose.min.js"></script>
   <link rel="stylesheet" href="styles.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&display=swap" rel="stylesheet">
 </head>
 
+
 <body>
+  <header class="gt-header">
+    <div class="gt-logo">
+      <span class="gt-blue">Signify</span> <span class="gt-grey">Translator</span>
+    </div>
+    <button id="themeToggleBtn" class="theme-toggle-btn" title="Toggle Dark Mode">
+      <svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24px" height="24px">
+        <path
+          d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z">
+        </path>
+      </svg>
+    </button>
+  </header>
 
-  <h1>Camera Test</h1>
 
-  <video id="videoEl" autoplay playsinline muted webkit-playsinline></video>
-  <button id="camBtn" onclick="startCamera()">Start Camera</button>
-  <button id="flipBtn" onclick="">Flip Camera</button>
+  <main class="gt-main">
+    <div class="gt-card-container">
 
-  <script src="script.js"></script>
+
+      <div class="gt-box">
+        <div class="gt-box-header">
+          <select id="modeSelector" class="gt-lang-tab active" onchange="changeMode()"
+            style="border:none; outline:none; background:transparent; cursor:pointer; font-family:inherit;">
+            <option value="asl_letter">🔤 ASL Spelling</option>
+            <option value="asl_word">🇺🇸 ASL Words</option>
+            <option value="csl_word">🇰🇭 CSL Words</option>
+          </select>
+        </div>
+        <div class="gt-box-content">
+          <div class="video-container">
+            <video id="videoEl" autoplay playsinline muted webkit-playsinline></video>
+            <canvas class="canvasEl"></canvas>
+          </div>
+
+
+          <div class="debug-panel">
+            <div class="debug-text">
+              Top Guess: <span id="topGuessText">None</span> (<span id="confidenceText">0%</span>)
+            </div>
+            <div class="bar-container">
+              <div id="confidenceFill"></div>
+            </div>
+          </div>
+        </div>
+        <div class="gt-box-footer">
+          <div class="gt-controls-left">
+            <button id="camBtn" class="gt-btn-primary" onclick="window.startCam()">Start Camera</button>
+            <button class="gt-icon-btn" onclick="window.flipCam()" title="Flip Camera">
+              <svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#5f6368" width="24px"
+                height="24px">
+                <path
+                  d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z">
+                </path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+
+      <div class="gt-box output-box">
+        <div class="gt-box-header">
+          <div class="gt-lang-tab active">English</div>
+          <button class="gt-icon-btn clear-btn" onclick="clearWord()" title="Clear translation">
+            <svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#5f6368" width="24px"
+              height="24px">
+              <path
+                d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z">
+              </path>
+            </svg>
+          </button>
+        </div>
+        <div class="gt-box-content gt-output-content">
+          <div class="translation-wrapper">
+            <div id="translationOutput" class="live-translation">...</div>
+            <div class="word-panel">
+              <div id="wordDisplay" class="extracted-word"></div>
+              <div id="finalTranslation" class="final-translation"></div>
+            </div>
+          </div>
+        </div>
+        <div class="gt-box-footer output-footer">
+          <button onclick="translateSentence()" class="gt-btn-translate">Interpret Context</button>
+        </div>
+      </div>
+
+
+    </div>
+  </main>
+
+
+  <script type="module" src="script.js"></script>
 </body>
+
 
 </html>
