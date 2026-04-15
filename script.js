@@ -2,6 +2,12 @@ import { HandLandmarker, PoseLandmarker, FilesetResolver }
     from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
 
 
+// --- NEW: DEVICE DETECTOR ---
+// True if on a phone/tablet, False if on a PC
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+let showSkeletons = !isMobile; // Skeletons ON for PC, OFF for Mobile
+
+
 //camera and mode
 let stream;
 let videoEle = document.getElementById('videoEl');
@@ -22,7 +28,6 @@ let displayWrd = document.getElementById('wordDisplay');
 //marker
 let hLM; //hand
 let pLM; //pose
-let showSkeletons = false;
 
 
 //asl
@@ -108,6 +113,7 @@ const POSE_LINE = [
 async function setUpMediaPipe() {
     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
 
+
     hLM = await HandLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`, delegate: "GPU" },
         runningMode: "VIDEO",
@@ -158,8 +164,10 @@ window.changeMode = async function () {
     curMode = selector.value;
     window.clearWord();
 
+
     staStr = 0;
     dynStr = 0;
+
 
     if (curMode === "asl_word") {
         guessTxt.innerText = "Mode: ASL Words (Ready to Train)";
@@ -181,22 +189,23 @@ window.changeMode = async function () {
         });
     }
 
+
     console.log("Mode:", curMode);
 }
 
 
+// --- UPDATED: SMART CAMERA ---
 window.startCam = async function () {
     try {
         if (stream) window.stopCam();
 
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: curCamera,
-                width: { ideal: 640 },
-                height: { ideal: 480 },
-                frameRate: { ideal: 15 }
-            }
-        });
+        // PC gets 720p at 30fps. Mobile gets 480p at 15fps.
+        const cameraSettings = isMobile
+            ? { facingMode: curCamera, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } }
+            : { facingMode: curCamera, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+
+
+        stream = await navigator.mediaDevices.getUserMedia({ video: cameraSettings });
 
         videoEle.srcObject = stream;
         await videoEle.play();
@@ -204,10 +213,7 @@ window.startCam = async function () {
         predictSign();
         btnCam.textContent = "Pause Camera";
         btnCam.onclick = window.pauseCam;
-    } catch (err) {
-        alert("Unable to access camera!");
-        console.error(err);
-    }
+    } catch (err) { alert("Unable to access camera!"); }
 }
 
 
@@ -297,12 +303,11 @@ async function predictSign() {
     if (videoEle.currentTime !== lastTime) {
         lastTime = videoEle.currentTime;
 
+
         prepareCanvas();
 
 
         const handResults = hLM.detectForVideo(videoEle, startTimeMs);
-
-
         let poseResults = null;
         if (curMode === "asl_word" || curMode === "csl_word") {
             poseResults = pLM.detectForVideo(videoEle, startTimeMs);
@@ -322,8 +327,6 @@ async function predictSign() {
 }
 
 
-
-
 //canvas line draw
 function prepareCanvas() {
     if (canvasElement.width !== videoEle.videoWidth) {
@@ -334,8 +337,9 @@ function prepareCanvas() {
 }
 
 
+// --- UPDATED: SMART GRAPHICS ---
 function drawSkeletons(poseResults, handResults) {
-    if (!showSkeletons) return;
+    if (!showSkeletons) return; // Instantly skip rendering on mobile!
 
 
     if (poseResults && poseResults.landmarks && poseResults.landmarks.length > 0) {
@@ -368,12 +372,8 @@ function drawSkeletons(poseResults, handResults) {
 }
 
 
-
-
 //brain
 function processHandLogic(hand) {
-
-
     let frameData = [];
     for (let i = 0; i < hand.length; i++) {
         frameData.push(hand[i].x, hand[i].y, hand[i].z);
@@ -404,11 +404,10 @@ function processHandLogic(hand) {
 }
 
 
-
-
 //dynamic
 function evaluateDynamicSign() {
     staStr = 0;
+
 
     const inputTensor = tf.tensor3d([buffer]);
     let prediction;
@@ -427,6 +426,7 @@ function evaluateDynamicSign() {
     const sanitizedWord = rawPredictedWord.trim().toLowerCase();
     const isIdle = (sanitizedWord === "idle" || sanitizedWord === "none" || sanitizedWord === "");
 
+
     if (!isIdle && confidence > THRESHOLD) {
         updateDynamicUI(rawPredictedWord, confidence);
 
@@ -440,6 +440,7 @@ function evaluateDynamicSign() {
 
 
         let requiredStreak = 12;
+
 
         if (rawPredictedWord.toUpperCase() === "J") {
             requiredStreak = 8;
@@ -455,18 +456,19 @@ function evaluateDynamicSign() {
         resetDynamicUI(confidence, isIdle);
     }
 
+
     inputTensor.dispose();
     prediction.dispose();
 }
-
-
 
 
 //static
 function evaluateStaticSign(hand) {
     dynStr = 0;
 
+
     const staticGuess = detectStaticAlphabet(hand);
+
 
     if (staticGuess) {
         let finalLetter = applyGeometricFixes(staticGuess.name, hand);
@@ -506,6 +508,7 @@ function applyGeometricFixes(letter, hand) {
     if (['U', 'V', 'R', 'P', 'H', 'K'].includes(finalLetter)) {
         const deltaX = Math.abs(hand[8].x - hand[5].x);
         const deltaY = Math.abs(hand[8].y - hand[5].y);
+
 
         if (deltaX > deltaY * 1.2) { finalLetter = 'H'; }
         else if (hand[8].y > hand[5].y) { finalLetter = 'P'; }
@@ -647,6 +650,3 @@ function resetTrackingState() {
         conTxt.innerText = "0%";
     }
 }
-
-
-
