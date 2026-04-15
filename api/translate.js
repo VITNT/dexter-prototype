@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
 
 
         const API_KEY = process.env.GEMINI_API_KEY;
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key=${API_KEY}`;
 
         const prompt = `You are an expert ASL translator. Convert this raw ASL gloss string into a natural, grammatically correct English sentence.
 
@@ -35,9 +35,9 @@ module.exports = async function handler(req, res) {
 
         NO STEPS: Do not list the word-splitting process.
 
-    ONLY THE RESULT: Output ONLY the final English sentence and nothing else.
+        ONLY THE RESULT: Output ONLY the final English sentence and nothing else.
 
-        Output exactly one short, concise sentence (under 15 words).
+        Output exactly one short, concise sentence.
         Do not include explanations, intermediate steps, or alternative interpretations.
        
         Raw ASL: "${aslString}"`;
