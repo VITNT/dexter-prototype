@@ -22,6 +22,7 @@ let displayWrd = document.getElementById('wordDisplay');
 //marker
 let hLM; //hand
 let pLM; //pose
+let showSkeletons = false;
 
 
 //asl
@@ -187,14 +188,26 @@ window.changeMode = async function () {
 window.startCam = async function () {
     try {
         if (stream) window.stopCam();
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: curCamera } });
+
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: curCamera,
+                width: { ideal: 640 },
+                height: { ideal: 480 },
+                frameRate: { ideal: 15 }
+            }
+        });
+
         videoEle.srcObject = stream;
         await videoEle.play();
         isPredicting = true;
         predictSign();
         btnCam.textContent = "Pause Camera";
         btnCam.onclick = window.pauseCam;
-    } catch (err) { alert("Unable to access camera!"); }
+    } catch (err) {
+        alert("Unable to access camera!");
+        console.error(err);
+    }
 }
 
 
@@ -288,6 +301,8 @@ async function predictSign() {
 
 
         const handResults = hLM.detectForVideo(videoEle, startTimeMs);
+
+
         let poseResults = null;
         if (curMode === "asl_word" || curMode === "csl_word") {
             poseResults = pLM.detectForVideo(videoEle, startTimeMs);
@@ -320,6 +335,8 @@ function prepareCanvas() {
 
 
 function drawSkeletons(poseResults, handResults) {
+    if (!showSkeletons) return;
+
 
     if (poseResults && poseResults.landmarks && poseResults.landmarks.length > 0) {
         const pose = poseResults.landmarks[0];
@@ -630,3 +647,6 @@ function resetTrackingState() {
         conTxt.innerText = "0%";
     }
 }
+
+
+
