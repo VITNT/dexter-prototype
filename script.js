@@ -160,9 +160,34 @@ document.getElementById('themeToggleBtn').addEventListener('click', () => {
 });
 
 
-window.changeMode = async function () {
-    const selector = document.getElementById('modeSelector');
-    curMode = selector.value;
+window.toggleDropdown = function () {
+    document.getElementById("modeDropdownContent").classList.toggle("show");
+}
+
+// Close the dropdown if the user clicks outside of it
+window.onclick = function (event) {
+    if (!event.target.matches('.custom-dropdown-btn') && !event.target.closest('.custom-dropdown-btn')) {
+        let dropdowns = document.getElementsByClassName("custom-dropdown-content");
+        for (let i = 0; i < dropdowns.length; i++) {
+            let openDropdown = dropdowns[i];
+            if (openDropdown.classList.contains('show')) {
+                openDropdown.classList.remove('show');
+            }
+        }
+    }
+}
+
+window.selectMode = async function (value, text, element) {
+    // Update UI
+    document.getElementById("selectedModeText").innerText = text;
+    document.getElementById("modeDropdownContent").classList.remove("show");
+
+    // Update active class
+    let items = document.querySelectorAll(".dropdown-item");
+    items.forEach(item => item.classList.remove("active"));
+    if (element) element.classList.add("active");
+
+    curMode = value;
     window.clearWord();
 
 
