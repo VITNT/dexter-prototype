@@ -11,11 +11,16 @@ body {
 
 /* Header */
 .gt-header {
-    background-color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     padding: 16px 24px;
     display: flex;
     align-items: center;
-    border-bottom: 1px solid #dadce0;
+    border-bottom: 1px solid rgba(218, 220, 224, 0.6);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
 }
 
 .gt-logo {
@@ -256,8 +261,8 @@ body.dark-mode {
 }
 
 body.dark-mode .gt-header {
-    background-color: #202124;
-    border-bottom: 1px solid #3c4043;
+    background-color: rgba(32, 33, 36, 0.75);
+    border-bottom: 1px solid rgba(60, 64, 67, 0.6);
 }
 
 body.dark-mode .gt-box {
@@ -354,6 +359,84 @@ body.dark-mode .theme-toggle-btn:hover {
 
 body.dark-mode .theme-toggle-btn svg {
     fill: #9aa0a6;
+}
+
+/* Custom Dropdown (Google Style) */
+.custom-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.custom-dropdown-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: 'Manrope', 'Roboto', sans-serif;
+    display: inline-flex;
+    align-items: center;
+    transition: background 0.2s;
+}
+
+.custom-dropdown-btn:hover {
+    background: #f1f3f4;
+}
+
+.custom-dropdown-content {
+    display: none;
+    position: absolute;
+    background-color: #ffffff;
+    min-width: 180px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08); /* Google shadow */
+    z-index: 100;
+    border-radius: 8px;
+    padding: 8px 0;
+    top: 40px;
+}
+
+.custom-dropdown-content.show {
+    display: block;
+}
+
+.dropdown-item {
+    color: #3c4043;
+    padding: 10px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: 'Manrope', 'Roboto', sans-serif;
+    display: flex;
+    align-items: center;
+}
+
+.dropdown-item:hover {
+    background-color: #f1f3f4;
+}
+
+.dropdown-item.active {
+    background-color: #e8f0fe; /* Google light blue active */
+    color: #1a73e8;
+}
+
+/* Dark mode for dropdown */
+body.dark-mode .custom-dropdown-btn:hover {
+    background: #3c4043;
+}
+
+body.dark-mode .custom-dropdown-content {
+    background-color: #292a2d;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .dropdown-item {
+    color: #e8eaed;
+}
+
+body.dark-mode .dropdown-item:hover {
+    background-color: #3c4043;
+}
+
+body.dark-mode .dropdown-item.active {
+    background-color: #3c4043; /* slightly different for dark mode */
+    color: #8ab4f8;
 }
 
 /* --- RESPONSIVE MOBILE LAYOUT --- */
