@@ -237,7 +237,7 @@ window.startCam = async function () {
         await videoEle.play();
         isPredicting = true;
         predictSign();
-        
+
         btnCam.textContent = "Stop Camera";
         btnCam.onclick = window.stopCam;
 
@@ -283,7 +283,7 @@ window.stopCam = function () {
         videoEle.load();
     }
     isPredicting = false;
-    
+
     btnCam.textContent = "Start Camera";
     btnCam.onclick = window.startCam;
 
@@ -311,7 +311,7 @@ window.clearWord = function () {
 window.translateSentence = async function () {
     if (!extWord) return;
     const translationUI = document.getElementById('finalTranslation');
-    translationUI.innerText = "Gemma 4 is thinking...";
+    translationUI.innerText = "Gemma 3 is thinking...";
     try {
         const response = await fetch('/api/translate', {
             method: 'POST',
