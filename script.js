@@ -12,6 +12,7 @@ let showSkeletons = !isMobile; // Skeletons ON for PC, OFF for Mobile
 let stream;
 let videoEle = document.getElementById('videoEl');
 let btnCam = document.getElementById('camBtn');
+let btnPauseCam = document.getElementById('pauseCamBtn');
 let curCamera = "user";
 let isPredicting = false;
 let curMode = "asl_letter";
@@ -211,8 +212,15 @@ window.startCam = async function () {
         await videoEle.play();
         isPredicting = true;
         predictSign();
-        btnCam.textContent = "Pause Camera";
-        btnCam.onclick = window.pauseCam;
+        
+        btnCam.textContent = "Stop Camera";
+        btnCam.onclick = window.stopCam;
+
+        if (btnPauseCam) {
+            btnPauseCam.style.display = "inline-block";
+            btnPauseCam.textContent = "Pause Camera";
+            btnPauseCam.onclick = window.pauseCam;
+        }
     } catch (err) { alert("Unable to access camera!"); }
 }
 
@@ -220,8 +228,20 @@ window.startCam = async function () {
 window.pauseCam = function () {
     videoEle.pause();
     isPredicting = false;
-    btnCam.textContent = "Resume Camera";
-    btnCam.onclick = window.startCam;
+    if (btnPauseCam) {
+        btnPauseCam.textContent = "Resume Camera";
+        btnPauseCam.onclick = window.resumeCam;
+    }
+}
+
+window.resumeCam = async function () {
+    await videoEle.play();
+    isPredicting = true;
+    predictSign();
+    if (btnPauseCam) {
+        btnPauseCam.textContent = "Pause Camera";
+        btnPauseCam.onclick = window.pauseCam;
+    }
 }
 
 
@@ -238,8 +258,15 @@ window.stopCam = function () {
         videoEle.load();
     }
     isPredicting = false;
+    
     btnCam.textContent = "Start Camera";
     btnCam.onclick = window.startCam;
+
+    if (btnPauseCam) {
+        btnPauseCam.style.display = "none";
+        btnPauseCam.textContent = "Pause Camera";
+        btnPauseCam.onclick = window.pauseCam;
+    }
 }
 
 
