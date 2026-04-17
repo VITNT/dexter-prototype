@@ -1,43 +1,43 @@
 import { HandLandmarker, PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
 
 
-let stream;
-let videoEle = document.getElementById('videoEl');
-let btn = document.getElementById('camBtn');
-let flip = document.getElementById('flipBtn');
-let modeBtn = document.getElementById('modeBtn');
-let currentCamera = "user";
+let cameraStream;
+let videoEl = document.getElementById('webcamFeed');
+let cameraToggle = document.getElementById('cameraToggleBtn');
+let flipBtn = document.getElementById('flipCameraBtn');
+let modeToggle = document.getElementById('trackingModeBtn');
+let activeCamera = "user";
 
 
-const canvasElement = document.getElementsByClassName('canvasEl')[0];
-const canvasCtx = canvasElement.getContext('2d');
+const overlayCanvas = document.getElementsByClassName('overlayCanvas')[0];
+const ctx = overlayCanvas.getContext('2d');
 
 
 const SEQUENCE_LENGTH = 30;
 let frameBuffer = [];
 
 
-// --- STATE VARIABLES ---
-let isRecording = false;
-let recordedFrames = [];
-let trackingMode = "hands"; // Starts in Alphabet mode
+// --- STATE ---
+let isCapturing = false;
+let capturedFrames = [];
+let trackingMode = "hands"; // starts in alphabet mode
 
 
-// --- MEDIAPIPE VARIABLES ---
-let handLandmarker;
-let poseLandmarker;
-let lastVideoTime = -1;
-let isPredicting = false;
+// --- MEDIAPIPE ---
+let handTracker;
+let poseTracker;
+let lastFrameTime = -1;
+let isRunning = false;
 
 
-const HAND_CONNECTIONS = [
+const HAND_BONES = [
     [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8],
     [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16],
     [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]
 ];
 
 
-const POSE_CONNECTIONS = [
+const POSE_BONES = [
     [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8],
     [9, 10], [11, 12], [11, 13], [13, 15], [15, 17], [15, 19], [15, 21], [17, 19],
     [12, 14], [14, 16], [16, 18], [16, 20], [16, 22], [18, 20],
@@ -46,16 +46,16 @@ const POSE_CONNECTIONS = [
 ];
 
 
-// --- INITIALIZE AI ---
-async function initMediaPipe() {
+// --- LOAD MODELS ---
+async function initTrackers() {
     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
 
-    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+    handTracker = await HandLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`, delegate: "GPU" },
-        runningMode: "VIDEO", numHands: 1 // Defaults to 1 hand for clean Alphabet tracking
+        runningMode: "VIDEO", numHands: 1 // defaults to 1 hand for alphabet tracking
     });
 
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+    poseTracker = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`, delegate: "GPU" },
         runningMode: "VIDEO"
     });
@@ -63,42 +63,42 @@ async function initMediaPipe() {
 
     console.log("Studio Ready!");
 }
-initMediaPipe();
+initTrackers();
 
 
-// --- UI CONTROLS ---
+// --- CAMERA CONTROLS ---
 window.toggleMode = async function () {
     trackingMode = trackingMode === "hands" ? "holistic" : "hands";
 
     if (trackingMode === "hands") {
-        modeBtn.textContent = "Mode: Alphabet (1 Hand)";
-        modeBtn.style.backgroundColor = "#ff9800";
-        await handLandmarker.setOptions({ numHands: 1 });
+        modeToggle.textContent = "Mode: Alphabet (1 Hand)";
+        modeToggle.style.backgroundColor = "#ff9800";
+        await handTracker.setOptions({ numHands: 1 });
     } else {
-        modeBtn.textContent = "Mode: Words (Body + 2 Hands)";
-        modeBtn.style.backgroundColor = "#e91e63";
-        await handLandmarker.setOptions({ numHands: 2 });
+        modeToggle.textContent = "Mode: Words (Body + 2 Hands)";
+        modeToggle.style.backgroundColor = "#e91e63";
+        await handTracker.setOptions({ numHands: 2 });
     }
 
-    // Wipe buffers so 63-point arrays never mix with 225-point arrays!
+    // wipe buffers so 63-point arrays never mix with 225-point arrays
     frameBuffer = [];
-    recordedFrames = [];
-    isRecording = false;
-    document.getElementById('recordStatus').innerText = "Mode switched. Buffers cleared.";
-    document.getElementById('recordStatus').style.color = "yellow";
+    capturedFrames = [];
+    isCapturing = false;
+    document.getElementById('captureStatus').innerText = "Mode switched. Buffers cleared.";
+    document.getElementById('captureStatus').style.color = "yellow";
 }
 
 
 window.startCamera = async function () {
     try {
-        if (stream) window.stopCamera();
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentCamera } });
-        videoEle.srcObject = stream;
-        await videoEle.play();
-        isPredicting = true;
-        predictWebcam();
-        btn.textContent = "Pause Video";
-        btn.onclick = window.pauseCamera;
+        if (cameraStream) window.stopCamera();
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: activeCamera } });
+        videoEl.srcObject = cameraStream;
+        await videoEl.play();
+        isRunning = true;
+        runDetectionLoop();
+        cameraToggle.textContent = "Pause Video";
+        cameraToggle.onclick = window.pauseCamera;
     } catch (err) {
         console.error(err);
         alert("Unable to access camera!");
@@ -107,73 +107,73 @@ window.startCamera = async function () {
 
 
 window.pauseCamera = function () {
-    videoEle.pause();
-    isPredicting = false;
-    btn.textContent = "Resume Video";
-    btn.onclick = window.startCamera;
+    videoEl.pause();
+    isRunning = false;
+    cameraToggle.textContent = "Resume Video";
+    cameraToggle.onclick = window.startCamera;
 }
 
 
 window.stopCamera = function () {
-    if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
-    isPredicting = false;
+    if (cameraStream) { cameraStream.getTracks().forEach(track => track.stop()); cameraStream = null; }
+    isRunning = false;
 }
 
 
 window.flipCamera = async function () {
-    currentCamera = currentCamera === "user" ? "environment" : "user";
+    activeCamera = activeCamera === "user" ? "environment" : "user";
     window.stopCamera();
     await window.startCamera();
 }
 
 
 window.recordGesture = function () {
-    const gestureName = document.getElementById('gestureName').value;
-    if (!gestureName) { alert("Please type a gesture name first!"); return; }
+    const labelName = document.getElementById('signLabel').value;
+    if (!labelName) { alert("Please type a gesture name first!"); return; }
 
 
-    isRecording = true;
-    recordedFrames = [];
-    document.getElementById('recordStatus').innerText = `Recording ${trackingMode} data...`;
-    document.getElementById('recordStatus').style.color = "red";
-    frameBuffer = []; // Clear to ensure we catch 30 completely fresh frames
+    isCapturing = true;
+    capturedFrames = [];
+    document.getElementById('captureStatus').innerText = `Recording ${trackingMode} data...`;
+    document.getElementById('captureStatus').style.color = "red";
+    frameBuffer = []; // clear so we get 30 completely fresh frames
 }
 
 
-function saveDataToFile(label, data) {
-    const dataToSave = { label: label, frames: data };
-    const blob = new Blob([JSON.stringify(dataToSave)], { type: "application/json" });
+function downloadAsJSON(label, frames) {
+    const payload = { label: label, frames: frames };
+    const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${label}_${trackingMode}_${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${label}_${trackingMode}_${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
 
-// --- MEDIAPIPE DRAWING LOOP ---
-async function predictWebcam() {
-    if (!isPredicting) return;
-    if (videoEle.videoWidth === 0) { window.requestAnimationFrame(predictWebcam); return; }
+// --- MAIN DETECTION LOOP ---
+async function runDetectionLoop() {
+    if (!isRunning) return;
+    if (videoEl.videoWidth === 0) { window.requestAnimationFrame(runDetectionLoop); return; }
 
 
-    let startTimeMs = performance.now();
+    let now = performance.now();
 
-    if (videoEle.currentTime !== lastVideoTime) {
-        lastVideoTime = videoEle.currentTime;
+    if (videoEl.currentTime !== lastFrameTime) {
+        lastFrameTime = videoEl.currentTime;
 
-        if (canvasElement.width !== videoEle.videoWidth) {
-            canvasElement.width = videoEle.videoWidth;
-            canvasElement.height = videoEle.videoHeight;
+        if (overlayCanvas.width !== videoEl.videoWidth) {
+            overlayCanvas.width = videoEl.videoWidth;
+            overlayCanvas.height = videoEl.videoHeight;
         }
 
 
-        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
 
-        const handResults = handLandmarker.detectForVideo(videoEle, startTimeMs);
+        const handResults = handTracker.detectForVideo(videoEl, now);
         let frameData = [];
 
 
@@ -181,32 +181,32 @@ async function predictWebcam() {
         // MODE: HOLISTIC (Body + 2 Hands = 225 numbers)
         // ==========================================
         if (trackingMode === "holistic") {
-            const poseResults = poseLandmarker.detectForVideo(videoEle, startTimeMs);
+            const poseResults = poseTracker.detectForVideo(videoEl, now);
 
-            // 1. EXTRACT BODY (99)
+            // 1. EXTRACT BODY (99 values = 33 joints * xyz)
             if (poseResults.landmarks && poseResults.landmarks.length > 0) {
                 const pose = poseResults.landmarks[0];
                 for (let i = 0; i < pose.length; i++) frameData.push(pose[i].x, pose[i].y, pose[i].z);
 
-                for (const connection of POSE_CONNECTIONS) {
-                    const startX = pose[connection[0]].x * canvasElement.width;
-                    const startY = pose[connection[0]].y * canvasElement.height;
-                    const endX = pose[connection[1]].x * canvasElement.width;
-                    const endY = pose[connection[1]].y * canvasElement.height;
-                    canvasCtx.beginPath(); canvasCtx.moveTo(startX, startY); canvasCtx.lineTo(endX, endY);
-                    canvasCtx.strokeStyle = "lime"; canvasCtx.lineWidth = 2; canvasCtx.stroke();
+                for (const bone of POSE_BONES) {
+                    const startX = pose[bone[0]].x * overlayCanvas.width;
+                    const startY = pose[bone[0]].y * overlayCanvas.height;
+                    const endX = pose[bone[1]].x * overlayCanvas.width;
+                    const endY = pose[bone[1]].y * overlayCanvas.height;
+                    ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(endX, endY);
+                    ctx.strokeStyle = "lime"; ctx.lineWidth = 2; ctx.stroke();
                 }
             } else {
                 for (let i = 0; i < 99; i++) frameData.push(0);
             }
 
 
-            // 2. SET UP BUCKETS
+            // 2. SET UP BUCKETS FOR LEFT/RIGHT
             let leftHandData = new Array(63).fill(0);
             let rightHandData = new Array(63).fill(0);
 
 
-            // 3. SORT HANDS
+            // 3. SORT BY HANDEDNESS
             if (handResults.landmarks) {
                 for (let i = 0; i < handResults.landmarks.length; i++) {
                     const hand = handResults.landmarks[i];
@@ -222,7 +222,7 @@ async function predictWebcam() {
             }
 
 
-            // 4. COMBINE
+            // 4. COMBINE: pose + left + right = 225 total
             frameData.push(...leftHandData);
             frameData.push(...rightHandData);
             frameBuffer.push(frameData);
@@ -248,31 +248,30 @@ async function predictWebcam() {
         }
 
 
-        if (isRecording && frameBuffer.length > 0) {
-            recordedFrames.push(frameBuffer[frameBuffer.length - 1]);
-            if (recordedFrames.length === SEQUENCE_LENGTH) {
-                isRecording = false;
-                document.getElementById('recordStatus').innerText = "Done! Downloading...";
-                document.getElementById('recordStatus').style.color = "lime";
-                saveDataToFile(document.getElementById('gestureName').value, recordedFrames);
+        if (isCapturing && frameBuffer.length > 0) {
+            capturedFrames.push(frameBuffer[frameBuffer.length - 1]);
+            if (capturedFrames.length === SEQUENCE_LENGTH) {
+                isCapturing = false;
+                document.getElementById('captureStatus').innerText = "Done! Downloading...";
+                document.getElementById('captureStatus').style.color = "lime";
+                downloadAsJSON(document.getElementById('signLabel').value, capturedFrames);
             }
         }
 
 
-        // --- DRAW HANDS ---
+        // --- DRAW HAND SKELETON ---
         if (handResults.landmarks) {
             for (const hand of handResults.landmarks) {
-                for (const connection of HAND_CONNECTIONS) {
-                    const startX = hand[connection[0]].x * canvasElement.width;
-                    const startY = hand[connection[0]].y * canvasElement.height;
-                    const endX = hand[connection[1]].x * canvasElement.width;
-                    const endY = hand[connection[1]].y * canvasElement.height;
-                    canvasCtx.beginPath(); canvasCtx.moveTo(startX, startY); canvasCtx.lineTo(endX, endY);
-                    canvasCtx.strokeStyle = "cyan"; canvasCtx.lineWidth = 2; canvasCtx.stroke();
+                for (const bone of HAND_BONES) {
+                    const startX = hand[bone[0]].x * overlayCanvas.width;
+                    const startY = hand[bone[0]].y * overlayCanvas.height;
+                    const endX = hand[bone[1]].x * overlayCanvas.width;
+                    const endY = hand[bone[1]].y * overlayCanvas.height;
+                    ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(endX, endY);
+                    ctx.strokeStyle = "cyan"; ctx.lineWidth = 2; ctx.stroke();
                 }
             }
         }
     }
-    window.requestAnimationFrame(predictWebcam);
+    window.requestAnimationFrame(runDetectionLoop);
 }
-

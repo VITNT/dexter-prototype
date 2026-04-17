@@ -14,12 +14,12 @@
 
 
 <body>
-  <header class="gt-header">
-    <div class="gt-logo" style="display: flex; align-items: center; gap: 8px;">
+  <header class="dex-header">
+    <div class="dex-logo" style="display: flex; align-items: center; gap: 8px;">
       <img src="logo.png" alt="Dexter Logo" width="32" height="32" style="border-radius: 6px;">
-      <span class="gt-blue">Dexter</span>
+      <span class="dex-blue">Dexter</span>
     </div>
-    <button id="themeToggleBtn" class="theme-toggle-btn" title="Toggle Dark Mode">
+    <button id="darkModeToggle" class="theme-toggle-btn" title="Toggle Dark Mode">
       <svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24px" height="24px">
         <path
           d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z">
@@ -29,21 +29,21 @@
   </header>
 
 
-  <main class="gt-main">
-    <div class="gt-card-container">
+  <main class="dex-main">
+    <div class="dex-card-container">
 
 
-      <div class="gt-box">
-        <div class="gt-box-header">
+      <div class="dex-box">
+        <div class="dex-box-header">
           <div class="custom-dropdown" id="modeDropdown">
-            <button class="gt-lang-tab active custom-dropdown-btn" onclick="window.toggleDropdown()">
-              <span id="selectedModeText">ASL Spelling</span>
+            <button class="dex-lang-tab active custom-dropdown-btn" onclick="window.toggleDropdown()">
+              <span id="currentModeLabel">ASL Spelling</span>
               <svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
                 width="18px" height="18px" style="margin-left: 4px; pointer-events: none; vertical-align: middle;">
                 <path d="M7 10l5 5 5-5z"></path>
               </svg>
             </button>
-            <div class="custom-dropdown-content" id="modeDropdownContent">
+            <div class="custom-dropdown-content" id="modeMenu">
               <div class="dropdown-item active" onclick="window.selectMode('asl_letter', 'ASL Spelling', this)">ASL
                 Spelling</div>
               <div class="dropdown-item" onclick="window.selectMode('asl_word', 'ASL Words', this)">ASL Words
@@ -53,28 +53,28 @@
             </div>
           </div>
         </div>
-        <div class="gt-box-content">
+        <div class="dex-box-content">
           <div class="video-container">
-            <video id="videoEl" autoplay playsinline muted webkit-playsinline></video>
-            <canvas class="canvasEl"></canvas>
+            <video id="webcamFeed" autoplay playsinline muted webkit-playsinline></video>
+            <canvas class="overlayCanvas"></canvas>
           </div>
 
 
           <div class="debug-panel">
             <div class="debug-text">
-              Top Guess: <span id="topGuessText">None</span> (<span id="confidenceText">0%</span>)
+              Top Guess: <span id="guessLabel">None</span> (<span id="confidencePct">0%</span>)
             </div>
             <div class="bar-container">
-              <div id="confidenceFill"></div>
+              <div id="confidenceBar"></div>
             </div>
           </div>
         </div>
-        <div class="gt-box-footer">
-          <div class="gt-controls-left">
-            <button id="camBtn" class="gt-btn-primary" onclick="window.startCam()">Start Camera</button>
-            <button id="pauseCamBtn" class="gt-btn-primary" onclick="window.pauseCam()"
+        <div class="dex-box-footer">
+          <div class="dex-controls-left">
+            <button id="cameraBtn" class="dex-btn-primary" onclick="window.startCam()">Start Camera</button>
+            <button id="pauseBtn" class="dex-btn-primary" onclick="window.pauseCam()"
               style="display: none; margin-left: 8px;">Pause Camera</button>
-            <button class="gt-icon-btn" onclick="window.flipCam()" title="Flip Camera">
+            <button class="dex-icon-btn" onclick="window.flipCam()" title="Flip Camera">
               <svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#5f6368" width="24px"
                 height="24px">
                 <path
@@ -87,10 +87,10 @@
       </div>
 
 
-      <div class="gt-box output-box">
-        <div class="gt-box-header">
-          <div class="gt-lang-tab active">English</div>
-          <button class="gt-icon-btn clear-btn" onclick="clearWord()" title="Clear translation">
+      <div class="dex-box output-box">
+        <div class="dex-box-header">
+          <div class="dex-lang-tab active">English</div>
+          <button class="dex-icon-btn clear-btn" onclick="clearWord()" title="Clear translation">
             <svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#5f6368" width="24px"
               height="24px">
               <path
@@ -99,17 +99,17 @@
             </svg>
           </button>
         </div>
-        <div class="gt-box-content gt-output-content">
+        <div class="dex-box-content dex-output-content">
           <div class="translation-wrapper">
-            <div id="translationOutput" class="live-translation">...</div>
+            <div id="liveOutput" class="live-translation">...</div>
             <div class="word-panel">
-              <div id="wordDisplay" class="extracted-word"></div>
-              <div id="finalTranslation" class="final-translation"></div>
+              <div id="builtSentence" class="extracted-word"></div>
+              <div id="translatedResult" class="final-translation"></div>
             </div>
           </div>
         </div>
-        <div class="gt-box-footer output-footer">
-          <button onclick="translateSentence()" class="gt-btn-translate">Interpret Context</button>
+        <div class="dex-box-footer output-footer">
+          <button onclick="translateSentence()" class="dex-btn-translate">Interpret Context</button>
         </div>
       </div>
 

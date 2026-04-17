@@ -4,16 +4,17 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const aslString = req.body.aslString;
+        const glossInput = req.body.aslString;
 
-        if (!aslString) {
+        if (!glossInput) {
             return res.status(400).json({ error: "Missing ASL string" });
         }
 
         const API_KEY = process.env.GEMINI_API_KEY;
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
 
+        // Keep the prompt tight — Gemma tends to ramble if you give it room
         const prompt = `
 Translate this ASL gloss into natural English.
 
@@ -24,10 +25,10 @@ Rules:
 - No steps
 - No extra text
 
-ASL: ${aslString}
+ASL: ${glossInput}
 `;
 
-        const response = await fetch(url, {
+        const apiResponse = await fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -43,50 +44,48 @@ ASL: ${aslString}
             })
         });
 
-        const data = await response.json();
+        const payload = await apiResponse.json();
 
-        if (!response.ok) {
-            console.error("API Error Response:", data);
-            return res.status(response.status).json({
+        if (!apiResponse.ok) {
+            console.error("API Error Response:", payload);
+            return res.status(apiResponse.status).json({
                 error: "Google API Error",
-                details: data
+                details: payload
             });
         }
 
-        // ✅ Safe extraction — skip "thought" parts from thinking models
-        const parts = data?.candidates?.[0]?.content?.parts || [];
-        const outputPart = parts.filter(p => !p.thought).pop();
-        let rawText = outputPart?.text || "";
+        // Skip "thought" parts — thinking models sometimes sneak those in
+        const parts = payload?.candidates?.[0]?.content?.parts || [];
+        const finalPart = parts.filter(p => !p.thought).pop();
+        let rawText = finalPart?.text || "";
 
-        // 🔧 Light cleanup
-        let cleaned = rawText
-            // Remove markdown formatting / bullets / numbering
+        // Strip markdown artifacts, bullets, numbering, wrapping quotes
+        let sentence = rawText
             .replace(/^[*\-•\d.\)\s"]+/gm, "")
-            // Remove wrapping quotes
             .replace(/^["']|["']$/g, "")
             .trim();
 
-        // If multi-line, keep only the last meaningful line
-        const lines = cleaned.split("\n").filter(l => l.trim() !== "");
-        cleaned = (lines.pop() || "").trim();
+        // If multi-line, just grab the last real line (the actual answer)
+        const lines = sentence.split("\n").filter(l => l.trim() !== "");
+        sentence = (lines.pop() || "").trim();
 
-        // 🔧 Final formatting (guarantee sentence)
-        if (cleaned) {
-            cleaned =
-                cleaned.charAt(0).toUpperCase() +
-                cleaned.slice(1);
+        // Make sure we always return a proper sentence
+        if (sentence) {
+            sentence =
+                sentence.charAt(0).toUpperCase() +
+                sentence.slice(1);
 
-            if (!cleaned.endsWith(".")) {
-                cleaned += ".";
+            if (!sentence.endsWith(".")) {
+                sentence += ".";
             }
         } else {
-            cleaned = "Unable to generate translation.";
+            sentence = "Unable to generate translation.";
         }
 
-        return res.status(200).json({ translation: cleaned });
+        return res.status(200).json({ translation: sentence });
 
-    } catch (error) {
-        console.error("Server Crash:", error);
+    } catch (err) {
+        console.error("Server Crash:", err);
         return res.status(500).json({
             error: "Failed to connect to the AI model."
         });

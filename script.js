@@ -1,129 +1,103 @@
 import { HandLandmarker, PoseLandmarker, FilesetResolver }
     from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
 
+// --- DEVICE DETECTOR ---
+const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+let shouldDrawSkeletons = !isMobileDevice;
 
+// camera and state
+let cameraStream;
+let webcamVideo = document.getElementById('webcamFeed');
+let cameraToggleBtn = document.getElementById('cameraBtn');
+let pauseToggleBtn = document.getElementById('pauseBtn');
+let activeCameraFacing = "user";
+let isDetecting = false;
+let currentTrackingMode = "asl_letter";
 
+// confidence UI
+let rawExtractionDisplay = document.getElementById('liveOutput');
+let confidenceProgressBar = document.getElementById('confidenceBar');
+let confidencePctDisplay = document.getElementById('confidencePct');
+let guessLabelDisplay = document.getElementById('guessLabel');
+let sentenceBuilderDisplay = document.getElementById('builtSentence');
 
-// --- NEW: DEVICE DETECTOR ---
-// True if on a phone/tablet, False if on a PC
-const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-let showSkeletons = !isMobile; // Skeletons ON for PC, OFF for Mobile
+// mediapipe models
+let handTracker;
+let poseTracker;
 
+// --- DUAL AI MODELS ---
+let aslModel, cslModel;
+let aslVocab = [], cslVocab = [];
 
+// The currently active model
+let activeAIModel;
+let activeVocabulary = [];
 
+// timing and buffers
+let motionBuffer = [];
+let accumulatedWord = "";
+let actionCooldown = 0;
+let previousVideoTime = -1;
+const REQUIRED_FRAMES = 30;
+const COOLDOWN_DURATION_MS = 1500;
+const CONFIDENCE_THRESHOLD = 0.90;
 
-//camera and mode
-let stream;
-let videoEle = document.getElementById('videoEl');
-let btnCam = document.getElementById('camBtn');
-let btnPauseCam = document.getElementById('pauseCamBtn');
-let curCamera = "user";
-let isPredicting = false;
-let curMode = "asl_letter";
+// tracking streaks
+let dynamicSignStreak = 0;
+let lastDynamicGuess = "";
+let staticSignStreak = 0;
+let lastStaticGuess = "";
 
+// drawing canvas
+const overlayCanvasElement = document.getElementsByClassName('overlayCanvas')[0];
+const canvasContext = overlayCanvasElement.getContext('2d');
 
+// Ghost Hand fix: cache the last known positions
+let cachedLeftHand = new Array(21 * 3).fill(0);
+let cachedRightHand = new Array(21 * 3).fill(0);
 
-
-//confidence bar
-let extractTxt = document.getElementById('translationOutput');
-let conCol = document.getElementById('confidenceFill');
-let conTxt = document.getElementById('confidenceText');
-let guessTxt = document.getElementById('topGuessText');
-let displayWrd = document.getElementById('wordDisplay');
-
-
-
-
-//marker
-let hLM; //hand
-let pLM; //pose
-
-
-
-
-//asl
-let aslBrain;
-let aslLabels = [];
-
-
-
-
-//time and extract
-let buffer = [];
-let extWord = "";
-let cooldown = 0;
-let lastTime = -1;
-const F_LENGTH = 30;  //frames
-const DURATION = 1500;
-const THRESHOLD = 0.90; //confidence lvl
-
-
-
-
-//streak
-let dynStr = 0;
-let ldg = "";
-let staStr = 0;
-let lsg = "";
-
-
-
-
-//canvas
-const canvasElement = document.getElementsByClassName('canvasEl')[0];
-const canvasCtx = canvasElement.getContext('2d');
-
-
-
-
-//finger
+// finger constants for FingerPose
 const { Thumb, Index, Middle, Ring, Pinky } = fp.Finger;
 const { NoCurl, HalfCurl, FullCurl } = fp.FingerCurl;
 
-
-
-
-//alphabets
-const staticGestures = [
-    createSign('A', [Thumb], [], [Index, Middle, Ring, Pinky]),
-    createSign('B', [Index, Middle, Ring, Pinky], [Thumb], []),
-    createSign('C', [], [Thumb, Index, Middle, Ring, Pinky], []),
-    createSign('D', [Index], [Thumb], [Middle, Ring, Pinky]),
-    createSign('E', [], [], [Thumb, Index, Middle, Ring, Pinky]),
-    createSign('F', [Middle, Ring, Pinky], [Thumb, Index], []),
-    createSign('G', [Index], [Thumb], [Middle, Ring, Pinky]),
-    createSign('H', [Index, Middle], [Thumb], [Ring, Pinky]),
-    createSign('I', [Pinky], [], [Thumb, Index, Middle, Ring]),
-    createSign('K', [Index, Middle], [Thumb], [Ring, Pinky]),
-    createSign('L', [Thumb, Index], [], [Middle, Ring, Pinky]),
-    createSign('M', [], [Thumb], [Index, Middle, Ring, Pinky]),
-    createSign('N', [], [Thumb], [Index, Middle, Ring, Pinky]),
-    createSign('O', [], [Thumb, Index, Middle, Ring, Pinky], []),
-    createSign('P', [Index, Middle], [Thumb], [Ring, Pinky]),
-    createSign('Q', [Index], [Thumb], [Middle, Ring, Pinky]),
-    createSign('R', [Index, Middle], [], [Thumb, Ring, Pinky]),
-    createSign('S', [], [], [Thumb, Index, Middle, Ring, Pinky]),
-    createSign('T', [], [], [Thumb, Index, Middle, Ring, Pinky]),
-    createSign('U', [Index, Middle], [], [Thumb, Ring, Pinky]),
-    createSign('V', [Index, Middle], [], [Thumb, Ring, Pinky]),
-    createSign('W', [Index, Middle, Ring], [], [Thumb, Pinky]),
-    createSign('X', [], [Index], [Thumb, Middle, Ring, Pinky]),
-    createSign('Y', [Thumb, Pinky], [], [Index, Middle, Ring])
+// static alphabets (ASL)
+const alphabetGestures = [
+    buildSign('A', [Thumb], [], [Index, Middle, Ring, Pinky]),
+    buildSign('B', [Index, Middle, Ring, Pinky], [Thumb], []),
+    buildSign('C', [], [Thumb, Index, Middle, Ring, Pinky], []),
+    buildSign('D', [Index], [Thumb], [Middle, Ring, Pinky]),
+    buildSign('E', [], [], [Thumb, Index, Middle, Ring, Pinky]),
+    buildSign('F', [Middle, Ring, Pinky], [Thumb, Index], []),
+    buildSign('G', [Index], [Thumb], [Middle, Ring, Pinky]),
+    buildSign('H', [Index, Middle], [Thumb], [Ring, Pinky]),
+    buildSign('I', [Pinky], [], [Thumb, Index, Middle, Ring]),
+    buildSign('K', [Index, Middle], [Thumb], [Ring, Pinky]),
+    buildSign('L', [Thumb, Index], [], [Middle, Ring, Pinky]),
+    buildSign('M', [], [Thumb], [Index, Middle, Ring, Pinky]),
+    buildSign('N', [], [Thumb], [Index, Middle, Ring, Pinky]),
+    buildSign('O', [], [Thumb, Index, Middle, Ring, Pinky], []),
+    buildSign('P', [Index, Middle], [Thumb], [Ring, Pinky]),
+    buildSign('Q', [Index], [Thumb], [Middle, Ring, Pinky]),
+    buildSign('R', [Index, Middle], [], [Thumb, Ring, Pinky]),
+    buildSign('S', [], [], [Thumb, Index, Middle, Ring, Pinky]),
+    buildSign('T', [], [], [Thumb, Index, Middle, Ring, Pinky]),
+    buildSign('U', [Index, Middle], [], [Thumb, Ring, Pinky]),
+    buildSign('V', [Index, Middle], [], [Thumb, Ring, Pinky]),
+    buildSign('W', [Index, Middle, Ring], [], [Thumb, Pinky]),
+    buildSign('X', [], [Index], [Thumb, Middle, Ring, Pinky]),
+    buildSign('Y', [Thumb, Pinky], [], [Index, Middle, Ring])
 ];
-const GE = new fp.GestureEstimator(staticGestures);
+const gestureEstimator = new fp.GestureEstimator(alphabetGestures);
 
-
-
-
-//lines
-const HAND_LINE = [
+// skeleton lines
+const HAND_CONNECTIONS = [
     [0, 1], [1, 2], [2, 3], [3, 4],
     [0, 5], [5, 6], [6, 7], [7, 8],
     [5, 9], [9, 10], [10, 11], [11, 12],
     [9, 13], [13, 14], [14, 15], [15, 16],
     [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]
 ];
-const POSE_LINE = [
+const POSE_CONNECTIONS = [
     [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8],
     [9, 10], [11, 12], [11, 13], [13, 15], [15, 17], [15, 19], [15, 21], [17, 19],
     [12, 14], [14, 16], [16, 18], [16, 20], [16, 22], [18, 20],
@@ -131,747 +105,845 @@ const POSE_LINE = [
     [27, 29], [28, 30], [29, 31], [30, 32], [27, 31], [28, 32]
 ];
 
-
-
-
-//this function basically set the marker
-async function setUpMediaPipe() {
+async function initializeMediaPipe() {
     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
 
-
-
-
-    hLM = await HandLandmarker.createFromOptions(vision, {
+    handTracker = await HandLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`, delegate: "GPU" },
         runningMode: "VIDEO",
         numHands: 1
     });
 
-
-
-
-    pLM = await PoseLandmarker.createFromOptions(vision, {
+    poseTracker = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`, delegate: "GPU" },
         runningMode: "VIDEO"
     });
 
+    try {
+        const aslResponse = await fetch('./asl-labels.json');
+        aslVocab = await aslResponse.json();
+        aslModel = await tf.loadLayersModel('./asl-model.json');
 
+        const cslResponse = await fetch('./csl_labels.json');
+        cslVocab = await cslResponse.json();
+        cslModel = await tf.loadLayersModel('./csl_model.json');
 
-
-    const labelResponse = await fetch('./model_labels.json');
-    aslLabels = await labelResponse.json();
-    aslBrain = await tf.loadLayersModel('./my-asl-model.json');
-    console.log("Online");
+        activeAIModel = aslModel;
+        activeVocabulary = aslVocab;
+        console.log("Models loaded successfully.");
+    } catch (error) {
+        console.error("Failed to load tfjs models. Check the filenames and paths.", error);
+    }
 }
 
+initializeMediaPipe();
 
-
-
-setUpMediaPipe();
-
-
-
-
-function createSign(name, noCurls, halfCurls, fullCurls) {
+function buildSign(name, noCurls, halfCurls, fullCurls) {
     const sign = new fp.GestureDescription(name);
-    noCurls.forEach(f => sign.addCurl(f, NoCurl, 1.0));
-    halfCurls.forEach(f => sign.addCurl(f, HalfCurl, 1.0));
-    fullCurls.forEach(f => sign.addCurl(f, FullCurl, 1.0));
+    noCurls.forEach(finger => sign.addCurl(finger, NoCurl, 1.0));
+    halfCurls.forEach(finger => sign.addCurl(finger, HalfCurl, 1.0));
+    fullCurls.forEach(finger => sign.addCurl(finger, FullCurl, 1.0));
     return sign;
 }
 
-
-
-
-function detectStaticAlphabet(hand) {
-    const keypoints3D = hand.map(point => [point.x * canvasElement.width, point.y * canvasElement.height, point.z * canvasElement.width]);
-    const estimation = GE.estimate(keypoints3D, 7.0);
-    if (estimation.gestures.length > 0) return estimation.gestures.reduce((p, c) => (p.score > c.score) ? p : c);
+function evaluateFingerPose(handLandmarks) {
+    // Fingerpose expects 3D coords scaled to canvas
+    const keypoints3D = handLandmarks.map(pt => [pt.x * overlayCanvasElement.width, pt.y * overlayCanvasElement.height, pt.z * overlayCanvasElement.width]);
+    const estimation = gestureEstimator.estimate(keypoints3D, 7.0);
+    if (estimation.gestures.length > 0) {
+        return estimation.gestures.reduce((prev, current) => (prev.score > current.score) ? prev : current);
+    }
     return null;
 }
 
+// ==========================================
+// DARK MODE
+// ==========================================
 
-
-
-// Restore dark mode preference on load
+// Restore preference on load
 if (localStorage.getItem('darkMode') === 'true') {
     document.body.classList.add('dark-mode');
 }
 
-document.getElementById('themeToggleBtn').addEventListener('click', () => {
+document.getElementById('darkModeToggle').addEventListener('click', () => {
     document.body.classList.toggle('dark-mode');
     localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
 });
 
-
-
+// ==========================================
+// DROPDOWN UI
+// ==========================================
 
 window.toggleDropdown = function () {
-    document.getElementById("modeDropdownContent").classList.toggle("show");
+    document.getElementById('modeMenu').classList.toggle('show');
 }
 
+window.selectMode = async function (modeId, modeLabel, element) {
+    document.getElementById('currentModeLabel').innerText = modeLabel;
 
-// Close the dropdown if the user clicks outside of it
-window.onclick = function (event) {
-    if (!event.target.matches('.custom-dropdown-btn') && !event.target.closest('.custom-dropdown-btn')) {
-        let dropdowns = document.getElementsByClassName("custom-dropdown-content");
-        for (let i = 0; i < dropdowns.length; i++) {
-            let openDropdown = dropdowns[i];
-            if (openDropdown.classList.contains('show')) {
-                openDropdown.classList.remove('show');
-            }
+    document.querySelectorAll('.dropdown-item').forEach(item => item.classList.remove('active'));
+    element.classList.add('active');
+
+    document.getElementById('modeMenu').classList.remove('show');
+
+    currentTrackingMode = modeId;
+    window.clearWord();
+    staticSignStreak = 0;
+    dynamicSignStreak = 0;
+
+    const guessLabelUI = document.getElementById('guessLabel');
+    const rawOutputUI = document.getElementById('liveOutput');
+
+    if (currentTrackingMode === "csl_word") {
+        guessLabelUI.innerText = `Mode: ${modeLabel} (Holistic)`;
+        rawOutputUI.innerText = `[CSL]`;
+        activeAIModel = cslModel;
+        activeVocabulary = cslVocab;
+        if (handTracker) await handTracker.setOptions({ numHands: 2 });
+
+    } else if (currentTrackingMode === "asl_word") {
+        guessLabelUI.innerText = `Mode: ${modeLabel} (Holistic)`;
+        rawOutputUI.innerText = `[ASL]`;
+        activeAIModel = aslModel;
+        activeVocabulary = aslVocab;
+        if (handTracker) await handTracker.setOptions({ numHands: 2 });
+
+    } else {
+        guessLabelUI.innerText = "Mode: ASL Spelling";
+        rawOutputUI.innerText = "...";
+        activeAIModel = aslModel;
+        activeVocabulary = aslVocab;
+        if (handTracker) await handTracker.setOptions({ numHands: 1 });
+    }
+}
+
+// Close dropdown if clicked outside
+window.addEventListener('click', function (event) {
+    if (!event.target.closest('.custom-dropdown')) {
+        let menu = document.getElementById("modeMenu");
+        if (menu && menu.classList.contains('show')) {
+            menu.classList.remove('show');
         }
     }
-}
+});
 
+// ==========================================
+// CAMERA
+// ==========================================
 
-window.selectMode = async function (value, text, element) {
-    // Update UI
-    document.getElementById("selectedModeText").innerText = text;
-    document.getElementById("modeDropdownContent").classList.remove("show");
-
-
-    // Update active class
-    let items = document.querySelectorAll(".dropdown-item");
-    items.forEach(item => item.classList.remove("active"));
-    if (element) element.classList.add("active");
-
-
-    curMode = value;
+window.changeMode = async function () {
+    const selector = document.getElementById('modeSelector');
+    currentTrackingMode = selector.value;
     window.clearWord();
+    staticSignStreak = 0; dynamicSignStreak = 0;
 
 
+    if (currentTrackingMode === "csl_word") {
+        guessLabelDisplay.innerText = "Mode: CSL Words (Holistic)";
+        rawExtractionDisplay.innerText = "[CSL]";
+        activeAIModel = cslModel;
+        activeVocabulary = cslVocab;
+        if (handTracker) await handTracker.setOptions({ numHands: 2 });
 
+    } else if (currentTrackingMode === "asl_word") {
+        guessLabelDisplay.innerText = "Mode: ASL Words (Holistic)";
+        rawExtractionDisplay.innerText = "[ASL]";
+        activeAIModel = aslModel;
+        activeVocabulary = aslVocab;
+        if (handTracker) await handTracker.setOptions({ numHands: 2 });
 
-    staStr = 0;
-    dynStr = 0;
-
-
-
-
-    if (curMode === "asl_word") {
-        guessTxt.innerText = "Mode: ASL Words (Ready to Train)";
-        extractTxt.innerText = "[ASL]";
-        if (hLM) await hLM.setOptions({
-            numHands: 2
-        });
-    } else if (curMode === "csl_word") {
-        guessTxt.innerText = "Mode: CSL Words (Ready to Train)";
-        extractTxt.innerText = "[CSL]";
-        if (hLM) await hLM.setOptions({
-            numHands: 2
-        });
     } else {
-        guessTxt.innerText = "Mode: ASL Spelling";
-        extractTxt.innerText = "...";
-        if (hLM) await hLM.setOptions({
-            numHands: 1
-        });
+        guessLabelDisplay.innerText = "Mode: ASL Spelling";
+        rawExtractionDisplay.innerText = "...";
+        activeAIModel = aslModel;
+        activeVocabulary = aslVocab;
+        if (handTracker) await handTracker.setOptions({ numHands: 1 });
     }
-
-
-
-
-    console.log("Mode:", curMode);
 }
 
 
-
-
-// --- UPDATED: SMART CAMERA ---
 window.startCam = async function () {
     try {
-        if (stream) window.stopCam();
+        if (cameraStream) window.stopCam();
 
+        // lower res for mobile, HD for desktop
+        const cameraConfig = isMobileDevice
+            ? { facingMode: activeCameraFacing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } }
+            : { facingMode: activeCameraFacing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
 
-        // PC gets 720p at 30fps. Mobile gets 480p at 15fps.
-        const cameraSettings = isMobile
-            ? { facingMode: curCamera, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } }
-            : { facingMode: curCamera, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: cameraConfig });
 
+        webcamVideo.srcObject = cameraStream;
+        await webcamVideo.play();
+        isDetecting = true;
+        processVideoFrames();
 
+        cameraToggleBtn.textContent = "Stop Camera";
+        cameraToggleBtn.onclick = window.stopCam;
 
-
-        stream = await navigator.mediaDevices.getUserMedia({ video: cameraSettings });
-
-
-        videoEle.srcObject = stream;
-        await videoEle.play();
-        isPredicting = true;
-        predictSign();
-
-        btnCam.textContent = "Stop Camera";
-        btnCam.onclick = window.stopCam;
-
-
-        if (btnPauseCam) {
-            btnPauseCam.style.display = "inline-block";
-            btnPauseCam.textContent = "Pause Camera";
-            btnPauseCam.onclick = window.pauseCam;
+        if (pauseToggleBtn) {
+            pauseToggleBtn.style.display = "inline-block";
+            pauseToggleBtn.textContent = "Pause Camera";
+            pauseToggleBtn.onclick = window.pauseCam;
         }
-    } catch (err) { alert("Unable to access camera!"); }
+    } catch (err) { 
+        alert("Unable to access camera. Please check your permissions."); 
+        console.error(err);
+    }
 }
-
-
-
 
 window.pauseCam = function () {
-    videoEle.pause();
-    isPredicting = false;
-    if (btnPauseCam) {
-        btnPauseCam.textContent = "Resume Camera";
-        btnPauseCam.onclick = window.resumeCam;
+    webcamVideo.pause();
+    isDetecting = false;
+
+    if (pauseToggleBtn) {
+        pauseToggleBtn.textContent = "Resume Camera";
+        pauseToggleBtn.onclick = window.resumeCam;
     }
 }
-
 
 window.resumeCam = async function () {
-    await videoEle.play();
-    isPredicting = true;
-    predictSign();
-    if (btnPauseCam) {
-        btnPauseCam.textContent = "Pause Camera";
-        btnPauseCam.onclick = window.pauseCam;
+    await webcamVideo.play();
+    isDetecting = true;
+    processVideoFrames();
+
+    if (pauseToggleBtn) {
+        pauseToggleBtn.textContent = "Pause Camera";
+        pauseToggleBtn.onclick = window.pauseCam;
     }
 }
-
-
-
 
 window.stopCam = function () {
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
     }
-    if (videoEle) {
-        videoEle.pause();
-        videoEle.removeAttribute('src');
-        videoEle.removeAttribute('srcObject');
-        videoEle.srcObject = null;
-        videoEle.load();
+    if (webcamVideo) {
+        webcamVideo.pause();
+        webcamVideo.removeAttribute('src');
+        webcamVideo.removeAttribute('srcObject');
+        webcamVideo.srcObject = null;
+        webcamVideo.load();
     }
-    isPredicting = false;
+    isDetecting = false;
 
-    btnCam.textContent = "Start Camera";
-    btnCam.onclick = window.startCam;
+    cameraToggleBtn.textContent = "Start Camera";
+    cameraToggleBtn.onclick = window.startCam;
 
-
-    if (btnPauseCam) {
-        btnPauseCam.style.display = "none";
-        btnPauseCam.textContent = "Pause Camera";
-        btnPauseCam.onclick = window.pauseCam;
+    if (pauseToggleBtn) {
+        pauseToggleBtn.style.display = "none";
+        pauseToggleBtn.textContent = "Pause Camera";
+        pauseToggleBtn.onclick = window.pauseCam;
     }
+
+    clearHandCache();
 }
 
-
-
-
 window.flipCam = async function () {
-    curCamera = curCamera === "user" ? "environment" : "user";
+    activeCameraFacing = activeCameraFacing === "user" ? "environment" : "user";
     window.stopCam();
     await window.startCam();
 }
 
-
-
+// ==========================================
+// TRANSLATION & API
+// ==========================================
 
 window.clearWord = function () {
-    extWord = "";
-    displayWrd.innerText = "";
+    accumulatedWord = "";
+    sentenceBuilderDisplay.innerHTML = "";
+
+    const finalResultUI = document.getElementById('translatedResult');
+    if (finalResultUI) finalResultUI.innerText = "";
+    rawExtractionDisplay.innerText = "...";
 }
 
-
-
-
 window.translateSentence = async function () {
-    if (!extWord) return;
-    const translationUI = document.getElementById('finalTranslation');
-    translationUI.innerText = "Dexter is thinking...";
+    if (!accumulatedWord) return;
+    
+    const finalResultUI = document.getElementById('translatedResult');
+    finalResultUI.innerText = "Processing translation...";
+    
     try {
         const response = await fetch('/api/translate', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ aslString: extWord })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ aslString: accumulatedWord })
         });
 
-
-
-
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error("Backend failed:", errorText);
-            translationUI.innerText = "Server Error: Model timed out or failed.";
+            console.error("Backend error:", await response.text());
+            finalResultUI.innerText = "Error: Translation service failed.";
             return;
         }
 
-
-
-
         const data = await response.json();
-        translationUI.innerText = data.translation ? data.translation : "Error: Could not translate.";
+        finalResultUI.innerText = data.translation || "Error: Empty response.";
     } catch (err) {
-        console.error("Fetch Error:", err);
-        translationUI.innerText = "Network Error.";
+        console.error("Network issue:", err);
+        finalResultUI.innerText = "Network Error. Please try again.";
     }
 }
 
+// ==========================================
+// DATA EXTRACTION & NORMALIZATION
+// ==========================================
 
+const calculateDistance = (p1, p2) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
 
+function buildHolisticFrame(poseData, handData) {
+    let rawPose = new Array(33 * 3).fill(0);
+    let leftHand = [...cachedLeftHand];
+    let rightHand = [...cachedRightHand];
 
-const distant = (p1, p2) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
-
-
-
-
-//main action
-async function predictSign() {
-    if (!isPredicting) return;
-    if (videoEle.videoWidth === 0) {
-        window.requestAnimationFrame(predictSign);
-        return;
-    }
-
-
-
-
-    let startTimeMs = performance.now();
-    if (videoEle.currentTime !== lastTime) {
-        lastTime = videoEle.currentTime;
-
-
-
-
-        prepareCanvas();
-
-
-
-
-        const handResults = hLM.detectForVideo(videoEle, startTimeMs);
-        let poseResults = null;
-        if (curMode === "asl_word" || curMode === "csl_word") {
-            poseResults = pLM.detectForVideo(videoEle, startTimeMs);
-        }
-
-
-
-
-        drawSkeletons(poseResults, handResults);
-
-
-
-
-        if (handResults.landmarks && handResults.landmarks.length > 0) {
-            processHandLogic(handResults.landmarks[0]);
-        } else {
-            resetTrackingState();
-        }
-    }
-    window.requestAnimationFrame(predictSign);
-}
-
-
-
-
-//canvas line draw
-function prepareCanvas() {
-    if (canvasElement.width !== videoEle.videoWidth) {
-        canvasElement.width = videoEle.videoWidth;
-        canvasElement.height = videoEle.videoHeight;
-    }
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-}
-
-
-
-
-// --- UPDATED: SMART GRAPHICS ---
-function drawSkeletons(poseResults, handResults) {
-    if (!showSkeletons) return; // Instantly skip rendering on mobile!
-
-
-
-
-    if (poseResults && poseResults.landmarks && poseResults.landmarks.length > 0) {
-        const pose = poseResults.landmarks[0];
-        for (const connection of POSE_LINE) {
-            const startX = pose[connection[0]].x * canvasElement.width;
-            const startY = pose[connection[0]].y * canvasElement.height;
-            const endX = pose[connection[1]].x * canvasElement.width;
-            const endY = pose[connection[1]].y * canvasElement.height;
-            canvasCtx.beginPath(); canvasCtx.moveTo(startX, startY); canvasCtx.lineTo(endX, endY);
-            canvasCtx.strokeStyle = "lime";
-            canvasCtx.lineWidth = 2;
-            canvasCtx.stroke();
+    // Grab body
+    if (poseData?.landmarks?.length > 0) {
+        const poseLandmarks = poseData.landmarks[0];
+        for (let i = 0; i < poseLandmarks.length; i++) {
+            rawPose[i * 3] = poseLandmarks[i].x;
+            rawPose[i * 3 + 1] = poseLandmarks[i].y;
+            rawPose[i * 3 + 2] = poseLandmarks[i].z;
         }
     }
 
+    // Grab hands and remember them in case they disappear next frame
+    if (handData?.landmarks?.length > 0) {
+        for (let h = 0; h < handData.landmarks.length; h++) {
+            const handPts = handData.landmarks[h];
+            const side = handData.handednesses[h][0].categoryName;
 
-
-
-    if (handResults && handResults.landmarks) {
-        for (const detectedHand of handResults.landmarks) {
-            for (const connection of HAND_LINE) {
-                const startX = detectedHand[connection[0]].x * canvasElement.width;
-                const startY = detectedHand[connection[0]].y * canvasElement.height;
-                const endX = detectedHand[connection[1]].x * canvasElement.width;
-                const endY = detectedHand[connection[1]].y * canvasElement.height;
-                canvasCtx.beginPath(); canvasCtx.moveTo(startX, startY); canvasCtx.lineTo(endX, endY);
-                canvasCtx.strokeStyle = "cyan"; canvasCtx.lineWidth = 2; canvasCtx.stroke();
+            let flatHand = new Array(63);
+            for (let i = 0; i < handPts.length; i++) {
+                flatHand[i * 3] = handPts[i].x;
+                flatHand[i * 3 + 1] = handPts[i].y;
+                flatHand[i * 3 + 2] = handPts[i].z;
             }
-        }
-    }
-}
 
-
-
-
-//brain
-function processHandLogic(hand) {
-    let frameData = [];
-    for (let i = 0; i < hand.length; i++) {
-        frameData.push(hand[i].x, hand[i].y, hand[i].z);
-    }
-    buffer.push(frameData);
-    if (buffer.length > F_LENGTH) buffer.shift();
-
-
-
-
-    if (buffer.length === F_LENGTH) {
-        if (curMode === "asl_letter") {
-            const oldWrist = buffer[0];
-            const newWrist = buffer[29];
-            const movementDistance = Math.sqrt(
-                Math.pow(newWrist[0] - oldWrist[0], 2) +
-                Math.pow(newWrist[1] - oldWrist[1], 2)
-            );
-
-
-
-
-            if (movementDistance > 0.08) {
-                evaluateDynamicSign();
+            if (side === "Left") {
+                leftHand = flatHand;
+                cachedLeftHand = flatHand;
             } else {
-                evaluateStaticSign(hand);
+                rightHand = flatHand;
+                cachedRightHand = flatHand;
             }
+        }
+    }
+
+    return [...rawPose, ...leftHand, ...rightHand];
+}
+
+function centerFrameData(rawFrame) {
+    // Try to find a good anchor point (nose, left wrist, or right wrist)
+    let anchorX = rawFrame[0];
+    let anchorY = rawFrame[1];
+
+    if (anchorX === 0 && anchorY === 0) { 
+        anchorX = rawFrame[99]; 
+        anchorY = rawFrame[100]; 
+    }
+    if (anchorX === 0 && anchorY === 0) { 
+        anchorX = rawFrame[162]; 
+        anchorY = rawFrame[163]; 
+    }
+    
+    // If no anchors are visible, just return the raw frame
+    if (anchorX === 0 && anchorY === 0) return rawFrame;
+
+    let centered = [];
+    for (let i = 0; i < rawFrame.length; i += 3) {
+        let x = rawFrame[i];
+        let y = rawFrame[i + 1];
+        let z = rawFrame[i + 2];
+
+        if (x === 0 && y === 0) {
+            centered.push(0, 0, 0); // leave zeros alone
         } else {
-            evaluateDynamicSign();
+            centered.push(x - anchorX, y - anchorY, z);
+        }
+    }
+    return centered;
+}
+
+function clearHandCache() {
+    cachedLeftHand = new Array(21 * 3).fill(0);
+    cachedRightHand = new Array(21 * 3).fill(0);
+}
+
+// ==========================================
+// PREDICTION LOOP
+// ==========================================
+
+async function processVideoFrames() {
+    if (!isDetecting) return;
+    
+    // Wait until video is actually playing and has dimensions
+    if (webcamVideo.videoWidth === 0) {
+        window.requestAnimationFrame(processVideoFrames);
+        return;
+    }
+
+    let currentTimeMs = performance.now();
+    
+    if (webcamVideo.currentTime !== previousVideoTime) {
+        previousVideoTime = webcamVideo.currentTime;
+        resizeCanvas();
+
+        const detectedHands = handTracker.detectForVideo(webcamVideo, currentTimeMs);
+        let detectedPose = null;
+        
+        if (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") {
+            detectedPose = poseTracker.detectForVideo(webcamVideo, currentTimeMs);
+        }
+
+        renderLandmarks(detectedPose, detectedHands);
+
+        if ((detectedHands.landmarks && detectedHands.landmarks.length > 0) || detectedPose) {
+            analyzeMovement(detectedHands, detectedPose);
+        } else {
+            resetInactivity();
+        }
+    }
+    
+    window.requestAnimationFrame(processVideoFrames);
+}
+
+function resizeCanvas() {
+    if (overlayCanvasElement.width !== webcamVideo.videoWidth) {
+        overlayCanvasElement.width = webcamVideo.videoWidth;
+        overlayCanvasElement.height = webcamVideo.videoHeight;
+    }
+    canvasContext.clearRect(0, 0, overlayCanvasElement.width, overlayCanvasElement.height);
+}
+
+function renderLandmarks(poseData, handData) {
+    if (!shouldDrawSkeletons) return;
+
+    // Draw body
+    if (poseData?.landmarks?.length > 0) {
+        const body = poseData.landmarks[0];
+        canvasContext.strokeStyle = "lime";
+        canvasContext.lineWidth = 2;
+        
+        for (const link of POSE_CONNECTIONS) {
+            const x1 = body[link[0]].x * overlayCanvasElement.width;
+            const y1 = body[link[0]].y * overlayCanvasElement.height;
+            const x2 = body[link[1]].x * overlayCanvasElement.width;
+            const y2 = body[link[1]].y * overlayCanvasElement.height;
+            
+            canvasContext.beginPath(); 
+            canvasContext.moveTo(x1, y1); 
+            canvasContext.lineTo(x2, y2);
+            canvasContext.stroke();
+        }
+    }
+
+    // Draw hands
+    if (handData?.landmarks) {
+        canvasContext.strokeStyle = "cyan"; 
+        canvasContext.lineWidth = 2;
+        
+        for (const hand of handData.landmarks) {
+            for (const link of HAND_CONNECTIONS) {
+                const x1 = hand[link[0]].x * overlayCanvasElement.width;
+                const y1 = hand[link[0]].y * overlayCanvasElement.height;
+                const x2 = hand[link[1]].x * overlayCanvasElement.width;
+                const y2 = hand[link[1]].y * overlayCanvasElement.height;
+                
+                canvasContext.beginPath(); 
+                canvasContext.moveTo(x1, y1); 
+                canvasContext.lineTo(x2, y2);
+                canvasContext.stroke();
+            }
         }
     }
 }
 
+function analyzeMovement(handData, poseData) {
+    let currentFrame = [];
 
-
-
-//dynamic
-function evaluateDynamicSign() {
-    staStr = 0;
-
-
-
-
-    const inputTensor = tf.tensor3d([buffer]);
-    let prediction;
-    try {
-        prediction = aslBrain.predict(inputTensor);
-    } catch (err) {
-        inputTensor.dispose();
-        return;
-    }
-
-
-
-
-    const predictionArray = prediction.dataSync();
-    const highestIndex = prediction.argMax(1).dataSync()[0];
-    const confidence = predictionArray[highestIndex];
-    const rawPredictedWord = aslLabels[highestIndex] || "";
-    const sanitizedWord = rawPredictedWord.trim().toLowerCase();
-    const isIdle = (sanitizedWord === "idle" || sanitizedWord === "none" || sanitizedWord === "");
-
-
-
-
-    if (!isIdle && confidence > THRESHOLD) {
-        updateDynamicUI(rawPredictedWord, confidence);
-
-
-
-
-        if (rawPredictedWord === ldg) {
-            dynStr++;
-        } else {
-            ldg = rawPredictedWord;
-            dynStr = 1;
-        }
-
-
-
-
-        let requiredStreak = 12;
-
-
-
-
-        if (rawPredictedWord.toUpperCase() === "J") {
-            requiredStreak = 8;
-        }
-
-
-
-
-        if (dynStr >= requiredStreak && Date.now() > cooldown) {
-            commitWord(rawPredictedWord);
-            dynStr = 0;
-            buffer = [];
+    if (currentTrackingMode === "asl_letter") {
+        if (handData.landmarks?.length > 0) {
+            const primaryHand = handData.landmarks[0];
+            for (let i = 0; i < primaryHand.length; i++) {
+                currentFrame.push(primaryHand[i].x, primaryHand[i].y, primaryHand[i].z);
+            }
         }
     } else {
-        resetDynamicUI(confidence, isIdle);
+        let rawHolistic = buildHolisticFrame(poseData, handData);
+        currentFrame = centerFrameData(rawHolistic);
     }
 
+    if (currentFrame.length > 0) {
+        motionBuffer.push(currentFrame);
+        if (motionBuffer.length > REQUIRED_FRAMES) motionBuffer.shift();
+    }
 
+    // Only run predictions if we have a full buffer of frames
+    if (motionBuffer.length === REQUIRED_FRAMES) {
+        if (currentTrackingMode === "asl_letter") {
+            const hand = handData.landmarks[0];
+            const oldWristPos = motionBuffer[0];
+            const newWristPos = motionBuffer[29]; // the wrist is always the first point (x, y)
+            
+            // Check if they are swiping/moving their hand significantly
+            const distanceMoved = Math.sqrt(
+                Math.pow(newWristPos[0] - oldWristPos[0], 2) + Math.pow(newWristPos[1] - oldWristPos[1], 2)
+            );
 
-
-    inputTensor.dispose();
-    prediction.dispose();
+            if (distanceMoved > 0.08) {
+                inferDynamicGesture();
+            } else if (hand) {
+                inferStaticGesture(hand);
+            }
+        } else {
+            inferDynamicGesture();
+        }
+    }
 }
 
+function inferDynamicGesture() {
+    staticSignStreak = 0; // reset static tracking
+    if (!activeAIModel) return;
 
+    const tensorInput = tf.tensor3d([motionBuffer]);
+    let aiPrediction;
+    
+    try {
+        aiPrediction = activeAIModel.predict(tensorInput);
+    } catch (err) {
+        tensorInput.dispose();
+        return;
+    }
 
+    const probabilities = Array.from(aiPrediction.dataSync());
+    let mappedResults = probabilities.map((conf, idx) => ({ word: activeVocabulary[idx], conf: conf }));
+    mappedResults.sort((a, b) => b.conf - a.conf);
 
-//static
-function evaluateStaticSign(hand) {
-    dynStr = 0;
+    const bestMatch = mappedResults[0];
+    const predictedSign = bestMatch.word;
+    const confidenceLevel = bestMatch.conf;
+    const cleanedSign = predictedSign.trim().toLowerCase();
+    
+    let isUserIdle = ["idle", "none", "", "still"].includes(cleanedSign);
 
+    // --- STATIC FILTER / IDLE DETECTION ---
+    // Look at how far the wrists traveled over the last 30 frames
+    let distTraveled = 0;
+    
+    // right wrist
+    let rwStartX = motionBuffer[0][162], rwStartY = motionBuffer[0][163];
+    let rwEndX = motionBuffer[29][162], rwEndY = motionBuffer[29][163];
 
+    if (rwStartX !== 0 && rwEndX !== 0) {
+        distTraveled = Math.sqrt(Math.pow(rwEndX - rwStartX, 2) + Math.pow(rwEndY - rwStartY, 2));
+    } else {
+        // fallback to left wrist
+        let lwStartX = motionBuffer[0][99], lwStartY = motionBuffer[0][100];
+        let lwEndX = motionBuffer[29][99], lwEndY = motionBuffer[29][100];
+        if (lwStartX !== 0 && lwEndX !== 0) {
+            distTraveled = Math.sqrt(Math.pow(lwEndX - lwStartX, 2) + Math.pow(lwEndY - lwStartY, 2));
+        }
+    }
 
+    // Force idle if there's barely any movement
+    if (distTraveled < 0.03) {
+        isUserIdle = true;
+    }
+    // ----------------------------------------
 
-    const staticGuess = detectStaticAlphabet(hand);
+    if (!isUserIdle && confidenceLevel > CONFIDENCE_THRESHOLD) {
+        showDynamicMatch(predictedSign, confidenceLevel);
 
-
-
-
-    if (staticGuess) {
-        let finalLetter = applyGeometricFixes(staticGuess.name, hand);
-
-
-
-
-        if (finalLetter === lsg) {
-            staStr++;
+        if (predictedSign === lastDynamicGuess) {
+            dynamicSignStreak++;
         } else {
-            lsg = finalLetter;
-            staStr = 1;
+            lastDynamicGuess = predictedSign;
+            dynamicSignStreak = 1;
         }
 
+        // 'J' requires less frames because it's a quick flick
+        let requiredHits = (predictedSign.toUpperCase() === "J") ? 8 : 12;
 
+        if (dynamicSignStreak >= requiredHits && Date.now() > actionCooldown) {
+            const topChoices = mappedResults
+                .filter(res => !["idle", "none", "", "still"].includes(res.word.trim().toLowerCase()))
+                .slice(0, 3);
 
+            acceptDynamicWord(topChoices);
+            
+            // clear states
+            dynamicSignStreak = 0;
+            motionBuffer = [];
+            clearHandCache();
+        }
+    } else {
+        showDynamicIdle(confidenceLevel, isUserIdle);
+    }
 
-        updateStaticUI(finalLetter, staticGuess.score);
+    tensorInput.dispose();
+    aiPrediction.dispose();
+}
 
+function inferStaticGesture(hand) {
+    dynamicSignStreak = 0; // reset dynamic tracking
+    const fpGuess = evaluateFingerPose(hand);
 
+    if (fpGuess) {
+        let adjustedLetter = refineGeometricEdges(fpGuess.name, hand);
 
+        if (adjustedLetter === lastStaticGuess) {
+            staticSignStreak++;
+        } else {
+            lastStaticGuess = adjustedLetter;
+            staticSignStreak = 1;
+        }
 
-        if (staStr >= 3 && Date.now() > cooldown) {
-            commitStaticLetter(finalLetter);
+        showStaticMatch(adjustedLetter, fpGuess.score);
+
+        // Require 3 consistent frames to lock it in
+        if (staticSignStreak >= 3 && Date.now() > actionCooldown) {
+            acceptStaticLetter(adjustedLetter);
         }
     } else {
         resetStaticUI();
     }
 }
 
+// FingerPose isn't perfect, so we use math to fix ambiguous letters
+function refineGeometricEdges(currentGuess, hand) {
+    let corrected = currentGuess;
 
-
-
-function applyGeometricFixes(letter, hand) {
-    let finalLetter = letter;
-
-
-
-
-    if (['Y', 'I'].includes(finalLetter)) {
-        const handWidth = distant(hand[5], hand[17]);
-        const thumbStretch = distant(hand[4], hand[5]);
-        finalLetter = thumbStretch > handWidth * 0.8 ? 'Y' : 'I';
+    // Y vs I
+    if (['Y', 'I'].includes(corrected)) {
+        const width = calculateDistance(hand[5], hand[17]);
+        const thumbExtension = calculateDistance(hand[4], hand[5]);
+        corrected = thumbExtension > width * 0.8 ? 'Y' : 'I';
     }
 
+    // U / V / R / P / H / K block
+    if (['U', 'V', 'R', 'P', 'H', 'K'].includes(corrected)) {
+        const dx = Math.abs(hand[8].x - hand[5].x);
+        const dy = Math.abs(hand[8].y - hand[5].y);
 
-
-
-    if (['U', 'V', 'R', 'P', 'H', 'K'].includes(finalLetter)) {
-        const deltaX = Math.abs(hand[8].x - hand[5].x);
-        const deltaY = Math.abs(hand[8].y - hand[5].y);
-
-
-
-
-        if (deltaX > deltaY * 1.2) { finalLetter = 'H'; }
-        else if (hand[8].y > hand[5].y) { finalLetter = 'P'; }
-        else {
-            const knucklesDiff = hand[5].x - hand[9].x;
-            const tipsDiff = hand[8].x - hand[12].x;
-            if (knucklesDiff * tipsDiff < 0) { finalLetter = 'R'; }
-            else {
-                const tipGap = distant(hand[8], hand[12]);
-                const knuckleGap = distant(hand[5], hand[9]);
-                if (tipGap < knuckleGap * 1.4) { finalLetter = 'U'; }
-                else if (hand[4].y < hand[9].y + 0.02) { finalLetter = 'K'; }
-                else { finalLetter = 'V'; }
+        if (dx > dy * 1.2) { 
+            corrected = 'H'; 
+        } else if (hand[8].y > hand[5].y) { 
+            corrected = 'P'; 
+        } else {
+            // Check crossed fingers for R
+            const knuckleCross = hand[5].x - hand[9].x;
+            const tipCross = hand[8].x - hand[12].x;
+            if (knuckleCross * tipCross < 0) { 
+                corrected = 'R'; 
+            } else {
+                const fingerGap = calculateDistance(hand[8], hand[12]);
+                const baseGap = calculateDistance(hand[5], hand[9]);
+                if (fingerGap < baseGap * 1.4) { 
+                    corrected = 'U'; 
+                } else if (hand[4].y < hand[9].y + 0.02) { 
+                    corrected = 'K'; 
+                } else { 
+                    corrected = 'V'; 
+                }
             }
         }
     }
 
-
-
-
-    if (['D', 'Q', 'L', 'G'].includes(finalLetter)) {
-        const deltaX = Math.abs(hand[8].x - hand[5].x);
-        const deltaY = Math.abs(hand[8].y - hand[5].y);
-        if (deltaX > deltaY * 1.2) { finalLetter = 'G'; }
-        else if (hand[8].y > hand[5].y) { finalLetter = 'Q'; }
-        else {
-            const handWidth = distant(hand[5], hand[17]);
-            const thumbStretch = distant(hand[4], hand[5]);
-            finalLetter = thumbStretch > handWidth * 0.7 ? 'L' : 'D';
+    // D / Q / L / G block
+    if (['D', 'Q', 'L', 'G'].includes(corrected)) {
+        const dx = Math.abs(hand[8].x - hand[5].x);
+        const dy = Math.abs(hand[8].y - hand[5].y);
+        if (dx > dy * 1.2) { 
+            corrected = 'G'; 
+        } else if (hand[8].y > hand[5].y) { 
+            corrected = 'Q'; 
+        } else {
+            const width = calculateDistance(hand[5], hand[17]);
+            const thumbExtension = calculateDistance(hand[4], hand[5]);
+            corrected = thumbExtension > width * 0.7 ? 'L' : 'D';
         }
     }
 
-
-
-
-    if (['C', 'O', 'F'].includes(finalLetter)) {
-        const isMiddleStraightUp = hand[12].y < hand[10].y;
-        if (isMiddleStraightUp) { finalLetter = 'F'; }
-        else {
-            const pinchDistance = distant(hand[8], hand[4]);
-            const knuckleWidth = distant(hand[5], hand[6]);
-            finalLetter = pinchDistance < knuckleWidth ? 'O' : 'C';
+    // C / O / F block
+    if (['C', 'O', 'F'].includes(corrected)) {
+        const middleIsUp = hand[12].y < hand[10].y;
+        if (middleIsUp) { 
+            corrected = 'F'; 
+        } else {
+            const pinchGap = calculateDistance(hand[8], hand[4]);
+            const knuckleWidth = calculateDistance(hand[5], hand[6]);
+            corrected = pinchGap < knuckleWidth ? 'O' : 'C';
         }
     }
 
+    // A / E / S / T / M / N block
+    if (['A', 'E', 'S', 'T', 'M', 'N'].includes(corrected)) {
+        const leftHanded = hand[5].x > hand[17].x;
+        let tX = hand[4].x, iX = hand[5].x, rX = hand[13].x;
+        
+        if (leftHanded) { 
+            tX = -tX; 
+            iX = -iX; 
+            rX = -rX; 
+        }
 
+        const width = rX - iX;
+        const thumbPos = tX - iX;
 
-
-    if (['A', 'E', 'S', 'T', 'M', 'N'].includes(finalLetter)) {
-        const isFlipped = hand[5].x > hand[17].x;
-        let thumbX = hand[4].x; let indX = hand[5].x; let ringX = hand[13].x;
-        if (isFlipped) { thumbX = -thumbX; indX = -indX; ringX = -ringX; }
-
-
-
-
-        const handWidth = ringX - indX;
-        const thumbProgress = thumbX - indX;
-
-
-
-
-        if (hand[4].y > hand[5].y + 0.05) { finalLetter = 'E'; }
-        else if (hand[4].y < hand[6].y + 0.01 && thumbProgress > 0) { finalLetter = 'S'; }
-        else if (thumbProgress < 0 && hand[4].y < hand[5].y + 0.03) { finalLetter = 'A'; }
-        else if (thumbProgress > handWidth * 0.65) { finalLetter = 'M'; }
-        else if (thumbProgress > handWidth * 0.25) { finalLetter = 'N'; }
-        else { finalLetter = 'T'; }
+        if (hand[4].y > hand[5].y + 0.05) { 
+            corrected = 'E'; 
+        } else if (hand[4].y < hand[6].y + 0.01 && thumbPos > 0) { 
+            corrected = 'S'; 
+        } else if (thumbPos < 0 && hand[4].y < hand[5].y + 0.03) { 
+            corrected = 'A'; 
+        } else if (thumbPos > width * 0.65) { 
+            corrected = 'M'; 
+        } else if (thumbPos > width * 0.25) { 
+            corrected = 'N'; 
+        } else { 
+            corrected = 'T'; 
+        }
     }
 
-
-
-
-    return finalLetter;
+    return corrected;
 }
 
+// ==========================================
+// UI UPDATES
+// ==========================================
 
-
-
-//ui
-function updateDynamicUI(word, confidence) {
-    const confidencePercent = Math.round(confidence * 100);
-    conCol.style.width = confidencePercent + "%";
-    conCol.style.background = "lime";
-    conTxt.innerText = confidencePercent + "%";
-    guessTxt.innerText = "Motion: " + word;
+function showDynamicMatch(word, confidence) {
+    const percent = Math.round(confidence * 100);
+    confidenceProgressBar.style.width = percent + "%";
+    confidenceProgressBar.style.background = "lime";
+    confidencePctDisplay.innerText = percent + "%";
+    guessLabelDisplay.innerText = "Motion: " + word;
 }
 
-
-
-
-function resetDynamicUI(confidence, isIdle) {
-    dynStr = 0;
-    ldg = "";
-    const confPct = Math.round(confidence * 100);
-    conCol.style.width = isIdle ? confPct + "%" : "0%";
-    conCol.style.background = "gray";
-    guessTxt.innerText = isIdle ? "Motion: Idle" : "Swaying...";
-    conTxt.innerText = isIdle ? confPct + "%" : "0%";
+function showDynamicIdle(confidence, isUserIdle) {
+    dynamicSignStreak = 0;
+    lastDynamicGuess = "";
+    
+    const percent = Math.round(confidence * 100);
+    confidenceProgressBar.style.width = isUserIdle ? percent + "%" : "0%";
+    confidenceProgressBar.style.background = "gray";
+    guessLabelDisplay.innerText = isUserIdle ? "Motion: Idle" : "Swaying...";
+    confidencePctDisplay.innerText = isUserIdle ? percent + "%" : "0%";
 }
 
-
-
-
-function updateStaticUI(letter, score) {
-    const confPercent = Math.round((score / 10) * 100);
-    conCol.style.width = confPercent + "%";
-    conCol.style.background = "cyan";
-    guessTxt.innerText = "Pose: " + letter + " (Streak: " + staStr + "/3)";
-    conTxt.innerText = confPercent + "%";
+function showStaticMatch(letter, score) {
+    // Score out of 10 from FP
+    const percent = Math.round((score / 10) * 100);
+    confidenceProgressBar.style.width = percent + "%";
+    confidenceProgressBar.style.background = "cyan";
+    guessLabelDisplay.innerText = `Pose: ${letter} (Streak: ${staticSignStreak}/3)`;
+    confidencePctDisplay.innerText = percent + "%";
 }
-
-
-
 
 function resetStaticUI() {
-    staStr = 0;
-    conCol.style.width = "0%";
-    guessTxt.innerText = "Pose: None";
-    conTxt.innerText = "0%";
-    if (Date.now() > cooldown) extractTxt.innerText = "...";
-}
-
-
-
-
-function commitStaticLetter(letter) {
-    extractTxt.innerText = letter;
-    if (letter.trim().toLowerCase() !== "idle") {
-        extWord += letter;
-        displayWrd.innerText = extWord;
+    staticSignStreak = 0;
+    confidenceProgressBar.style.width = "0%";
+    guessLabelDisplay.innerText = "Pose: None";
+    confidencePctDisplay.innerText = "0%";
+    if (Date.now() > actionCooldown) {
+        rawExtractionDisplay.innerText = "...";
     }
-    cooldown = Date.now() + DURATION;
-    staStr = 0;
 }
 
-
-
-
-function commitWord(word) {
-    extractTxt.innerText = word;
-    extWord += word + " ";
-    displayWrd.innerText = extWord;
-    cooldown = Date.now() + DURATION;
-}
-
-
-
-
-function resetTrackingState() {
-    buffer = [];
-    dynStr = 0;
-    staStr = 0;
-    lsg = "";
-
-
-
-
-    if (Date.now() > cooldown) {
-        extractTxt.innerText = "...";
-        conCol.style.width = "0%";
-        if (curMode === "asl_word" || curMode === "csl_word") {
-            guessTxt.innerText = "Waiting for input... [Model Missing]";
-        } else {
-            guessTxt.innerText = "None";
+function syncSentenceState() {
+    let text = "";
+    Array.from(sentenceBuilderDisplay.childNodes).forEach(node => {
+        if (node.tagName === 'SELECT') {
+            text += node.value + " ";
+        } else if (node.tagName === 'SPAN') {
+            text += node.innerText;
+        } else if (node.nodeType === Node.TEXT_NODE) {
+            text += node.textContent;
         }
-        conTxt.innerText = "0%";
+    });
+    accumulatedWord = text.replace(/\s+/g, ' ').trim();
+}
+
+function acceptStaticLetter(letter) {
+    rawExtractionDisplay.innerText = letter;
+    
+    if (letter.trim().toLowerCase() !== "idle") {
+        const charSpan = document.createElement('span');
+        charSpan.className = "static-letter";
+        charSpan.innerText = letter;
+        sentenceBuilderDisplay.appendChild(charSpan);
+        syncSentenceState();
+    }
+    
+    actionCooldown = Date.now() + COOLDOWN_DURATION_MS;
+    staticSignStreak = 0;
+}
+
+function acceptDynamicWord(options) {
+    const primaryWord = options[0].word;
+    rawExtractionDisplay.innerText = primaryWord;
+
+    const dropdown = document.createElement('select');
+    dropdown.className = "ai-correction-dropdown";
+
+    // Style inline so it blends perfectly into the sentence flow
+    Object.assign(dropdown.style, {
+        border: "none",
+        background: "transparent",
+        fontFamily: "inherit",
+        fontSize: "inherit",
+        color: "var(--text-color, inherit)",
+        cursor: "pointer",
+        outline: "none",
+        textDecoration: "underline dashed gray"
+    });
+
+    // Populate alternatives
+    options.forEach(choice => {
+        const optionEl = document.createElement('option');
+        optionEl.value = choice.word;
+        optionEl.dataset.conf = Math.round(choice.conf * 100);
+        optionEl.innerText = choice.word;
+        dropdown.appendChild(optionEl);
+    });
+
+    // Show confidence percentages only when actively selecting
+    dropdown.addEventListener('focus', function () {
+        Array.from(this.options).forEach(opt => opt.innerText = `${opt.value} (${opt.dataset.conf}%)`);
+    });
+    
+    dropdown.addEventListener('blur', function () {
+        Array.from(this.options).forEach(opt => opt.innerText = opt.value);
+    });
+    
+    dropdown.addEventListener('change', function () {
+        Array.from(this.options).forEach(opt => opt.innerText = opt.value);
+        this.blur();
+        syncSentenceState(); // User corrected the word!
+    });
+
+    sentenceBuilderDisplay.appendChild(dropdown);
+    sentenceBuilderDisplay.appendChild(document.createTextNode(" "));
+
+    syncSentenceState();
+    actionCooldown = Date.now() + COOLDOWN_DURATION_MS;
+}
+
+function resetInactivity() {
+    motionBuffer = [];
+    dynamicSignStreak = 0;
+    staticSignStreak = 0;
+    lastStaticGuess = "";
+
+    if (Date.now() > actionCooldown) {
+        rawExtractionDisplay.innerText = "...";
+        confidenceProgressBar.style.width = "0%";
+        
+        if (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") {
+            guessLabelDisplay.innerText = "Waiting for input... [Ready]";
+        } else {
+            guessLabelDisplay.innerText = "None";
+        }
+        confidencePctDisplay.innerText = "0%";
     }
 }

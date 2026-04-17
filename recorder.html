@@ -22,7 +22,7 @@
             cursor: pointer;
         }
 
-        .collector-ui {
+        .capture-panel {
             margin-top: 20px;
             padding: 15px;
             border: 2px dashed lime;
@@ -44,25 +44,25 @@
     <h1>Recording Studio</h1>
 
     <div style="position: relative; width: 640px; height: 480px; margin: 0 auto;">
-        <video id="videoEl" autoplay playsinline muted webkit-playsinline
+        <video id="webcamFeed" autoplay playsinline muted webkit-playsinline
             style="position: absolute; top:0; left:0; width:100%; height:100%;"></video>
-        <canvas class="canvasEl"
+        <canvas class="overlayCanvas"
             style="position: absolute; top:0; left:0; width:100%; height:100%; z-index: 10; pointer-events: none;"></canvas>
     </div>
 
 
     <div>
-        <button id="camBtn" onclick="window.startCamera()">Start Camera</button>
-        <button id="flipBtn" onclick="window.flipCamera()">Flip Camera</button>
-        <button id="modeBtn" onclick="window.toggleMode()" style="background-color: #ff9800;">Mode: Hands Only</button>
+        <button id="cameraToggleBtn" onclick="window.startCamera()">Start Camera</button>
+        <button id="flipCameraBtn" onclick="window.flipCamera()">Flip Camera</button>
+        <button id="trackingModeBtn" onclick="window.toggleMode()" style="background-color: #ff9800;">Mode: Hands Only</button>
     </div>
 
 
-    <div class="collector-ui">
+    <div class="capture-panel">
         <h3>Dataset Recorder</h3>
-        <input type="text" id="gestureName" placeholder="e.g., J or Z" />
-        <button id="recordBtn" onclick="window.recordGesture()">🔴 Record 1 Second</button>
-        <p id="recordStatus" style="color: yellow; margin-top: 10px;">Ready to record...</p>
+        <input type="text" id="signLabel" placeholder="e.g., J or Z" />
+        <button id="captureBtn" onclick="window.recordGesture()">🔴 Record 1 Second</button>
+        <p id="captureStatus" style="color: yellow; margin-top: 10px;">Ready to record...</p>
     </div>
 
 
