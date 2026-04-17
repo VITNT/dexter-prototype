@@ -12,7 +12,7 @@ module.exports = async function handler(req, res) {
 
         const API_KEY = process.env.GEMINI_API_KEY;
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=${API_KEY}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
 
         const prompt = `
 Translate this ASL gloss into natural English.
