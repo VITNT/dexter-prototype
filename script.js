@@ -193,7 +193,7 @@ window.selectMode = async function (modeId, modeLabel, element) {
 
     if (currentTrackingMode === "csl_word") {
         guessLabelUI.innerText = `Mode: ${modeLabel}`;
-        rawOutputUI.innerText = `[CSL]`;
+        rawOutputUI.innerText = `...`;
         if (outputLangUI) outputLangUI.innerText = "Khmer";
         activeAIModel = cslModel;
         activeVocabulary = cslVocab;
