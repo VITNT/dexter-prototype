@@ -156,9 +156,7 @@ function evaluateFingerPose(handLandmarks) {
     return null;
 }
 
-// ==========================================
 // DARK MODE
-// ==========================================
 
 // Restore preference on load
 if (localStorage.getItem('darkMode') === 'true') {
@@ -170,9 +168,7 @@ document.getElementById('darkModeToggle').addEventListener('click', () => {
     localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
 });
 
-// ==========================================
 // DROPDOWN UI
-// ==========================================
 
 window.toggleDropdown = function () {
     document.getElementById('modeMenu').classList.toggle('show');
@@ -286,8 +282,8 @@ window.startCam = async function () {
             pauseToggleBtn.textContent = "Pause Camera";
             pauseToggleBtn.onclick = window.pauseCam;
         }
-    } catch (err) { 
-        alert("Unable to access camera. Please check your permissions."); 
+    } catch (err) {
+        alert("Unable to access camera. Please check your permissions.");
         console.error(err);
     }
 }
@@ -345,9 +341,7 @@ window.flipCam = async function () {
     await window.startCam();
 }
 
-// ==========================================
 // TRANSLATION & API
-// ==========================================
 
 window.clearWord = function () {
     accumulatedWord = "";
@@ -360,10 +354,10 @@ window.clearWord = function () {
 
 window.translateSentence = async function () {
     if (!accumulatedWord) return;
-    
+
     const finalResultUI = document.getElementById('translatedResult');
-    finalResultUI.innerText = "Processing translation...";
-    
+    finalResultUI.innerText = "Dexter is thinking...";
+
     try {
         const response = await fetch('/api/translate', {
             method: 'POST',
@@ -385,9 +379,7 @@ window.translateSentence = async function () {
     }
 }
 
-// ==========================================
 // DATA EXTRACTION & NORMALIZATION
-// ==========================================
 
 const calculateDistance = (p1, p2) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
 
@@ -437,15 +429,15 @@ function centerFrameData(rawFrame) {
     let anchorX = rawFrame[0];
     let anchorY = rawFrame[1];
 
-    if (anchorX === 0 && anchorY === 0) { 
-        anchorX = rawFrame[99]; 
-        anchorY = rawFrame[100]; 
+    if (anchorX === 0 && anchorY === 0) {
+        anchorX = rawFrame[99];
+        anchorY = rawFrame[100];
     }
-    if (anchorX === 0 && anchorY === 0) { 
-        anchorX = rawFrame[162]; 
-        anchorY = rawFrame[163]; 
+    if (anchorX === 0 && anchorY === 0) {
+        anchorX = rawFrame[162];
+        anchorY = rawFrame[163];
     }
-    
+
     // If no anchors are visible, just return the raw frame
     if (anchorX === 0 && anchorY === 0) return rawFrame;
 
@@ -469,13 +461,9 @@ function clearHandCache() {
     cachedRightHand = new Array(21 * 3).fill(0);
 }
 
-// ==========================================
-// PREDICTION LOOP
-// ==========================================
-
 async function processVideoFrames() {
     if (!isDetecting) return;
-    
+
     // Wait until video is actually playing and has dimensions
     if (webcamVideo.videoWidth === 0) {
         window.requestAnimationFrame(processVideoFrames);
@@ -483,14 +471,14 @@ async function processVideoFrames() {
     }
 
     let currentTimeMs = performance.now();
-    
+
     if (webcamVideo.currentTime !== previousVideoTime) {
         previousVideoTime = webcamVideo.currentTime;
         resizeCanvas();
 
         const detectedHands = handTracker.detectForVideo(webcamVideo, currentTimeMs);
         let detectedPose = null;
-        
+
         if (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") {
             detectedPose = poseTracker.detectForVideo(webcamVideo, currentTimeMs);
         }
@@ -503,7 +491,7 @@ async function processVideoFrames() {
             resetInactivity();
         }
     }
-    
+
     window.requestAnimationFrame(processVideoFrames);
 }
 
@@ -523,15 +511,15 @@ function renderLandmarks(poseData, handData) {
         const body = poseData.landmarks[0];
         canvasContext.strokeStyle = "lime";
         canvasContext.lineWidth = 2;
-        
+
         for (const link of POSE_CONNECTIONS) {
             const x1 = body[link[0]].x * overlayCanvasElement.width;
             const y1 = body[link[0]].y * overlayCanvasElement.height;
             const x2 = body[link[1]].x * overlayCanvasElement.width;
             const y2 = body[link[1]].y * overlayCanvasElement.height;
-            
-            canvasContext.beginPath(); 
-            canvasContext.moveTo(x1, y1); 
+
+            canvasContext.beginPath();
+            canvasContext.moveTo(x1, y1);
             canvasContext.lineTo(x2, y2);
             canvasContext.stroke();
         }
@@ -539,18 +527,18 @@ function renderLandmarks(poseData, handData) {
 
     // Draw hands
     if (handData?.landmarks) {
-        canvasContext.strokeStyle = "cyan"; 
+        canvasContext.strokeStyle = "cyan";
         canvasContext.lineWidth = 2;
-        
+
         for (const hand of handData.landmarks) {
             for (const link of HAND_CONNECTIONS) {
                 const x1 = hand[link[0]].x * overlayCanvasElement.width;
                 const y1 = hand[link[0]].y * overlayCanvasElement.height;
                 const x2 = hand[link[1]].x * overlayCanvasElement.width;
                 const y2 = hand[link[1]].y * overlayCanvasElement.height;
-                
-                canvasContext.beginPath(); 
-                canvasContext.moveTo(x1, y1); 
+
+                canvasContext.beginPath();
+                canvasContext.moveTo(x1, y1);
                 canvasContext.lineTo(x2, y2);
                 canvasContext.stroke();
             }
@@ -584,7 +572,7 @@ function analyzeMovement(handData, poseData) {
             const hand = handData.landmarks[0];
             const oldWristPos = motionBuffer[0];
             const newWristPos = motionBuffer[29]; // the wrist is always the first point (x, y)
-            
+
             // Check if they are swiping/moving their hand significantly
             const distanceMoved = Math.sqrt(
                 Math.pow(newWristPos[0] - oldWristPos[0], 2) + Math.pow(newWristPos[1] - oldWristPos[1], 2)
@@ -607,7 +595,7 @@ function inferDynamicGesture() {
 
     const tensorInput = tf.tensor3d([motionBuffer]);
     let aiPrediction;
-    
+
     try {
         aiPrediction = activeAIModel.predict(tensorInput);
     } catch (err) {
@@ -623,13 +611,13 @@ function inferDynamicGesture() {
     const predictedSign = bestMatch.word;
     const confidenceLevel = bestMatch.conf;
     const cleanedSign = predictedSign.trim().toLowerCase();
-    
+
     let isUserIdle = ["idle", "none", "", "still"].includes(cleanedSign);
 
     // --- STATIC FILTER / IDLE DETECTION ---
     // Look at how far the wrists traveled over the last 30 frames
     let distTraveled = 0;
-    
+
     // right wrist
     let rwStartX = motionBuffer[0][162], rwStartY = motionBuffer[0][163];
     let rwEndX = motionBuffer[29][162], rwEndY = motionBuffer[29][163];
@@ -670,7 +658,7 @@ function inferDynamicGesture() {
                 .slice(0, 3);
 
             acceptDynamicWord(topChoices);
-            
+
             // clear states
             dynamicSignStreak = 0;
             motionBuffer = [];
@@ -725,25 +713,25 @@ function refineGeometricEdges(currentGuess, hand) {
         const dx = Math.abs(hand[8].x - hand[5].x);
         const dy = Math.abs(hand[8].y - hand[5].y);
 
-        if (dx > dy * 1.2) { 
-            corrected = 'H'; 
-        } else if (hand[8].y > hand[5].y) { 
-            corrected = 'P'; 
+        if (dx > dy * 1.2) {
+            corrected = 'H';
+        } else if (hand[8].y > hand[5].y) {
+            corrected = 'P';
         } else {
             // Check crossed fingers for R
             const knuckleCross = hand[5].x - hand[9].x;
             const tipCross = hand[8].x - hand[12].x;
-            if (knuckleCross * tipCross < 0) { 
-                corrected = 'R'; 
+            if (knuckleCross * tipCross < 0) {
+                corrected = 'R';
             } else {
                 const fingerGap = calculateDistance(hand[8], hand[12]);
                 const baseGap = calculateDistance(hand[5], hand[9]);
-                if (fingerGap < baseGap * 1.4) { 
-                    corrected = 'U'; 
-                } else if (hand[4].y < hand[9].y + 0.02) { 
-                    corrected = 'K'; 
-                } else { 
-                    corrected = 'V'; 
+                if (fingerGap < baseGap * 1.4) {
+                    corrected = 'U';
+                } else if (hand[4].y < hand[9].y + 0.02) {
+                    corrected = 'K';
+                } else {
+                    corrected = 'V';
                 }
             }
         }
@@ -753,10 +741,10 @@ function refineGeometricEdges(currentGuess, hand) {
     if (['D', 'Q', 'L', 'G'].includes(corrected)) {
         const dx = Math.abs(hand[8].x - hand[5].x);
         const dy = Math.abs(hand[8].y - hand[5].y);
-        if (dx > dy * 1.2) { 
-            corrected = 'G'; 
-        } else if (hand[8].y > hand[5].y) { 
-            corrected = 'Q'; 
+        if (dx > dy * 1.2) {
+            corrected = 'G';
+        } else if (hand[8].y > hand[5].y) {
+            corrected = 'Q';
         } else {
             const width = calculateDistance(hand[5], hand[17]);
             const thumbExtension = calculateDistance(hand[4], hand[5]);
@@ -767,8 +755,8 @@ function refineGeometricEdges(currentGuess, hand) {
     // C / O / F block
     if (['C', 'O', 'F'].includes(corrected)) {
         const middleIsUp = hand[12].y < hand[10].y;
-        if (middleIsUp) { 
-            corrected = 'F'; 
+        if (middleIsUp) {
+            corrected = 'F';
         } else {
             const pinchGap = calculateDistance(hand[8], hand[4]);
             const knuckleWidth = calculateDistance(hand[5], hand[6]);
@@ -780,28 +768,28 @@ function refineGeometricEdges(currentGuess, hand) {
     if (['A', 'E', 'S', 'T', 'M', 'N'].includes(corrected)) {
         const leftHanded = hand[5].x > hand[17].x;
         let tX = hand[4].x, iX = hand[5].x, rX = hand[13].x;
-        
-        if (leftHanded) { 
-            tX = -tX; 
-            iX = -iX; 
-            rX = -rX; 
+
+        if (leftHanded) {
+            tX = -tX;
+            iX = -iX;
+            rX = -rX;
         }
 
         const width = rX - iX;
         const thumbPos = tX - iX;
 
-        if (hand[4].y > hand[5].y + 0.05) { 
-            corrected = 'E'; 
-        } else if (hand[4].y < hand[6].y + 0.01 && thumbPos > 0) { 
-            corrected = 'S'; 
-        } else if (thumbPos < 0 && hand[4].y < hand[5].y + 0.03) { 
-            corrected = 'A'; 
-        } else if (thumbPos > width * 0.65) { 
-            corrected = 'M'; 
-        } else if (thumbPos > width * 0.25) { 
-            corrected = 'N'; 
-        } else { 
-            corrected = 'T'; 
+        if (hand[4].y > hand[5].y + 0.05) {
+            corrected = 'E';
+        } else if (hand[4].y < hand[6].y + 0.01 && thumbPos > 0) {
+            corrected = 'S';
+        } else if (thumbPos < 0 && hand[4].y < hand[5].y + 0.03) {
+            corrected = 'A';
+        } else if (thumbPos > width * 0.65) {
+            corrected = 'M';
+        } else if (thumbPos > width * 0.25) {
+            corrected = 'N';
+        } else {
+            corrected = 'T';
         }
     }
 
@@ -823,7 +811,7 @@ function showDynamicMatch(word, confidence) {
 function showDynamicIdle(confidence, isUserIdle) {
     dynamicSignStreak = 0;
     lastDynamicGuess = "";
-    
+
     const percent = Math.round(confidence * 100);
     confidenceProgressBar.style.width = isUserIdle ? percent + "%" : "0%";
     confidenceProgressBar.style.background = "gray";
@@ -866,7 +854,7 @@ function syncSentenceState() {
 
 function acceptStaticLetter(letter) {
     rawExtractionDisplay.innerText = letter;
-    
+
     if (letter.trim().toLowerCase() !== "idle") {
         const charSpan = document.createElement('span');
         charSpan.className = "static-letter";
@@ -874,7 +862,7 @@ function acceptStaticLetter(letter) {
         sentenceBuilderDisplay.appendChild(charSpan);
         syncSentenceState();
     }
-    
+
     actionCooldown = Date.now() + COOLDOWN_DURATION_MS;
     staticSignStreak = 0;
 }
@@ -911,11 +899,11 @@ function acceptDynamicWord(options) {
     dropdown.addEventListener('focus', function () {
         Array.from(this.options).forEach(opt => opt.innerText = `${opt.value} (${opt.dataset.conf}%)`);
     });
-    
+
     dropdown.addEventListener('blur', function () {
         Array.from(this.options).forEach(opt => opt.innerText = opt.value);
     });
-    
+
     dropdown.addEventListener('change', function () {
         Array.from(this.options).forEach(opt => opt.innerText = opt.value);
         this.blur();
@@ -938,7 +926,7 @@ function resetInactivity() {
     if (Date.now() > actionCooldown) {
         rawExtractionDisplay.innerText = "...";
         confidenceProgressBar.style.width = "0%";
-        
+
         if (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") {
             guessLabelDisplay.innerText = "Waiting for input... [Ready]";
         } else {

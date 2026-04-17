@@ -15,18 +15,22 @@ module.exports = async function handler(req, res) {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
 
         // Keep the prompt tight — Gemma tends to ramble if you give it room
-        const prompt = `
-Translate this ASL gloss into natural English.
+        const prompt = `You are an ASL gloss-to-English translator.
+
+ASL gloss is a written representation of American Sign Language where each word is an English label for a specific sign. The words are NOT foreign language words — they are literal English names for hand signs. Do NOT try to interpret or translate the individual words as if they are from another language. Just rearrange them into a natural English sentence.
+
+Example:
+ASL gloss: ME WANT GO STORE
+English: I want to go to the store.
 
 Rules:
-- Output ONE short sentence only
-- No explanations
-- No reasoning
-- No steps
-- No extra text
+- Output ONLY the final English sentence, nothing else
+- Treat every input word as a literal English sign label
+- Do NOT interpret words as Japanese, Spanish, or any other language
+- No explanations, reasoning, or extra text
 
-ASL: ${glossInput}
-`;
+ASL gloss: ${glossInput}
+English:`;
 
         const apiResponse = await fetch(endpoint, {
             method: "POST",
