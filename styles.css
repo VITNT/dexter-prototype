@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Manrope:wght@200..800&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Manrope:wght@200..800&family=Roboto:ital,wght@0,100..900;1,100..900&family=Battambang:wght@400;700&display=swap');
 
 body {
     background-color: #f8f9fa;
@@ -6,18 +6,21 @@ body {
     color: #3c4043;
     margin: 0;
     text-align: left;
-    font-family: 'Manrope', 'Roboto', sans-serif;
+    font-family: 'Manrope', 'Roboto', 'Battambang', sans-serif;
 }
 
 /* Header */
 .dex-header {
-    background-color: rgba(255, 255, 255, 0.75);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    padding: 16px 24px;
+    background-color: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    padding: 14px 24px;
     display: flex;
     align-items: center;
-    border-bottom: 1px solid rgba(218, 220, 224, 0.6);
+    flex-wrap: wrap;
+    gap: 8px;
+    border-bottom: 1px solid rgba(218, 220, 224, 0.4);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
     position: sticky;
     top: 0;
     z-index: 1000;
@@ -171,7 +174,7 @@ canvas {
     border-radius: 20px;
     /* pill shape */
     font-weight: 500;
-    font-family: 'Manrope', 'Roboto', sans-serif;
+    font-family: 'Manrope', 'Roboto', 'Battambang', sans-serif;
     transition: background 0.2s, box-shadow 0.2s;
 }
 
@@ -254,6 +257,339 @@ canvas {
     font-weight: 500;
 }
 
+/* Navigation Menu */
+.dex-nav {
+    display: flex;
+    margin-left: 24px;
+    gap: 4px;
+    align-items: center;
+}
+
+.dex-nav-item {
+    text-decoration: none;
+    color: #5f6368;
+    font-weight: 500;
+    font-size: 14px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    transition: background 0.2s, color 0.2s;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.dex-nav-item:hover, .dex-nav-item.active {
+    color: #1a73e8;
+    background-color: rgba(26, 115, 232, 0.08);
+}
+
+.dex-nav-dropdown {
+    position: relative;
+}
+
+.dex-nav-dropdown-content {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background-color: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    min-width: 170px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+    border-radius: 12px;
+    border: 1px solid rgba(218, 220, 224, 0.5);
+    padding: 6px;
+    z-index: 1001;
+}
+
+/* Invisible bridge to prevent hover loss when moving mouse to dropdown */
+.dex-nav-dropdown-content::after {
+    content: '';
+    position: absolute;
+    top: -10px;
+    left: 0;
+    width: 100%;
+    height: 10px;
+}
+
+.dex-nav-dropdown:hover .dex-nav-dropdown-content {
+    display: block;
+}
+
+.dex-nav-dropdown-item {
+    display: block;
+    text-decoration: none;
+    color: #3c4043;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    transition: background 0.15s;
+}
+
+.dex-nav-dropdown-item:hover {
+    background-color: #f1f3f4;
+    color: #1a73e8;
+}
+
+/* Dictionary Styles */
+.dictionary-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.dictionary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding: 0 16px;
+}
+
+.dictionary-title {
+    font-size: 24px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.dictionary-tabs {
+    display: flex;
+    gap: 8px;
+    background-color: #f1f3f4;
+    padding: 4px;
+    border-radius: 8px;
+}
+
+.dict-tab {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #5f6368;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    transition: background 0.2s, color 0.2s;
+}
+
+.dict-tab.active {
+    background-color: white;
+    color: #1a73e8;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.dictionary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 16px;
+    padding: 0 16px;
+}
+
+.dict-card {
+    background-color: white;
+    border-radius: 12px;
+    border: 1px solid #dadce0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    height: auto;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+/* Flashcard Mode (Enabled) */
+.dictionary-grid.flashcard-active .dict-card {
+    background-color: transparent;
+    perspective: 1000px;
+    height: 200px; /* Base height for 3D shape */
+    cursor: pointer;
+    border: none;
+    box-shadow: none;
+    overflow: visible;
+}
+
+.dict-card-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+}
+
+.dictionary-grid.flashcard-active .dict-card-inner {
+    transition: transform 0.6s;
+    transform-style: preserve-3d;
+}
+
+.dictionary-grid.flashcard-active .dict-card:hover .dict-card-inner {
+    transform: rotateY(180deg);
+}
+
+.dictionary-grid.flashcard-active .dict-card-front, 
+.dictionary-grid.flashcard-active .dict-card-back {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    border-radius: 12px;
+    border: 1px solid #dadce0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    background-color: white;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Normal Mode (Flashcard Disabled) */
+.dictionary-grid:not(.flashcard-active) .dict-card-front {
+    display: none; /* Hide front face */
+}
+
+.dictionary-grid:not(.flashcard-active) .dict-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.dict-card-front {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #1a73e8;
+}
+
+.flashcard-text {
+    font-size: 48px;
+    font-weight: 700;
+}
+
+/* CSL words might be longer, so we let the front scale slightly if needed */
+.dict-card-front span {
+    padding: 16px;
+    word-break: break-word;
+}
+
+.dictionary-grid.flashcard-active .dict-card-back {
+    transform: rotateY(180deg);
+}
+
+/* Flashcard Toggle UI - Custom Switch */
+.flashcard-switch-wrapper {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #5f6368;
+    cursor: pointer;
+    user-select: none;
+}
+
+.custom-switch {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.custom-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.custom-switch .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #dadce0;
+    transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
+    border-radius: 24px;
+}
+
+.custom-switch .slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.custom-switch input:checked + .slider {
+    background-color: #1a73e8;
+}
+
+.custom-switch input:focus + .slider {
+    box-shadow: 0 0 1px #1a73e8;
+}
+
+.custom-switch input:checked + .slider:before {
+    transform: translateX(20px);
+}
+
+.dict-img-placeholder {
+    width: 100%;
+    aspect-ratio: 1;
+    background-color: #f1f3f4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9aa0a6;
+    font-size: 12px;
+    overflow: hidden;
+}
+
+.dict-img-placeholder img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 8px;
+    box-sizing: border-box;
+    display: none; /* Hide until src is set */
+}
+
+.dict-img-placeholder img[src] {
+    display: block;
+}
+.dict-img-placeholder img[src] + span {
+    display: none;
+}
+
+.dict-label {
+    padding: 12px;
+    text-align: center;
+    font-weight: 500;
+    font-size: 16px;
+    color: #3c4043;
+    border-top: 1px solid #f1f3f4;
+}
+
+/* Reference Chart (full-width image above the grid) */
+.dict-reference-chart {
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto 24px auto;
+    padding: 0 16px;
+    box-sizing: border-box;
+}
+
+.dict-reference-chart img {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid #dadce0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
 /* --- DARK MODE OVERRIDES --- */
 body.dark-mode {
     background-color: #202124;
@@ -261,8 +597,11 @@ body.dark-mode {
 }
 
 body.dark-mode .dex-header {
-    background-color: rgba(32, 33, 36, 0.75);
-    border-bottom: 1px solid rgba(60, 64, 67, 0.6);
+    background-color: rgba(32, 33, 36, 0.6);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 1px solid rgba(60, 64, 67, 0.4);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
 }
 
 body.dark-mode .dex-box {
@@ -329,6 +668,91 @@ body.dark-mode #translatedResult {
     color: #81c995;
 }
 
+body.dark-mode .dex-nav-item {
+    color: #9aa0a6;
+}
+
+body.dark-mode .dex-nav-item:hover, body.dark-mode .dex-nav-item.active {
+    color: #8ab4f8;
+    background-color: rgba(138, 180, 248, 0.08);
+}
+
+body.dark-mode .dex-nav-dropdown-content {
+    background-color: rgba(41, 42, 45, 0.85);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
+    border-color: rgba(60, 64, 67, 0.4);
+}
+
+body.dark-mode .dex-nav-dropdown-item {
+    color: #e8eaed;
+}
+
+body.dark-mode .dex-nav-dropdown-item:hover {
+    background-color: #3c4043;
+    color: #8ab4f8;
+}
+
+body.dark-mode .dictionary-title {
+    color: #e8eaed;
+}
+
+body.dark-mode .dictionary-tabs {
+    background-color: #3c4043;
+}
+
+body.dark-mode .dict-tab {
+    color: #9aa0a6;
+}
+
+body.dark-mode .dict-tab.active {
+    background-color: #292a2d;
+    color: #8ab4f8;
+}
+
+body.dark-mode .dict-card,
+body.dark-mode .dictionary-grid.flashcard-active .dict-card-front, 
+body.dark-mode .dictionary-grid.flashcard-active .dict-card-back {
+    background-color: #292a2d;
+    border-color: #3c4043;
+}
+
+body.dark-mode .dict-card-front {
+    color: #8ab4f8;
+}
+
+body.dark-mode .flashcard-switch-wrapper {
+    color: #e8eaed;
+}
+
+body.dark-mode .custom-switch .slider {
+    background-color: #5f6368;
+}
+
+body.dark-mode .custom-switch input:checked + .slider {
+    background-color: #8ab4f8;
+}
+
+body.dark-mode .custom-switch input:checked + .slider:before {
+    background-color: #202124;
+}
+
+body.dark-mode .dict-img-placeholder {
+    background-color: #3c4043;
+    color: #9aa0a6;
+}
+
+body.dark-mode .dict-label {
+    color: #e8eaed;
+    border-color: #3c4043;
+}
+
+body.dark-mode .dict-reference-chart img {
+    border-color: #3c4043;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
 /* Dark mode toggle button */
 .theme-toggle-btn {
     background: transparent;
@@ -371,7 +795,7 @@ body.dark-mode .theme-toggle-btn svg {
     background: transparent;
     border: none;
     cursor: pointer;
-    font-family: 'Manrope', 'Roboto', sans-serif;
+    font-family: 'Manrope', 'Roboto', 'Battambang', sans-serif;
     display: inline-flex;
     align-items: center;
     transition: background 0.2s;
@@ -402,7 +826,7 @@ body.dark-mode .theme-toggle-btn svg {
     padding: 10px 16px;
     font-size: 14px;
     cursor: pointer;
-    font-family: 'Manrope', 'Roboto', sans-serif;
+    font-family: 'Manrope', 'Roboto', 'Battambang', sans-serif;
     display: flex;
     align-items: center;
 }
@@ -443,20 +867,16 @@ body.dark-mode .dropdown-item.active {
 @media screen and (max-width: 800px) {
     .dex-main {
         padding: 12px 8px;
-        /* reduce padding on main wrapper */
     }
 
     .dex-card-container {
         flex-direction: column;
-        /* Stack the input and output boxes! */
         gap: 16px;
     }
 
     .dex-box {
         flex: none;
-        /* Crucial: stops the box from collapsing its height in a flex column */
         min-height: auto;
-        /* Let content dictate height */
         width: 100%;
         height: auto;
     }
@@ -468,7 +888,6 @@ body.dark-mode .dropdown-item.active {
 
     #liveOutput {
         font-size: 28px;
-        /* Slightly smaller for mobile */
         min-height: 60px;
     }
 
@@ -477,7 +896,21 @@ body.dark-mode .dropdown-item.active {
     }
 
     .dex-header {
-        padding: 12px 16px;
+        padding: 10px 12px;
+    }
+
+    .dex-nav {
+        margin-left: 12px;
+        gap: 2px;
+    }
+
+    .dex-nav-item {
+        font-size: 13px;
+        padding: 6px 10px;
+    }
+
+    .dex-logo {
+        font-size: 18px;
     }
 
     .dex-box-content {
@@ -490,10 +923,52 @@ body.dark-mode .dropdown-item.active {
 
     .dex-controls-left {
         flex-wrap: wrap;
-        /* Ensure buttons wrap if they overflow */
     }
 
     .debug-panel {
         font-size: 11px;
+    }
+
+    .dictionary-header {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+
+    .dictionary-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 10px;
+    }
+
+    .flashcard-text {
+        font-size: 32px;
+    }
+
+    .dictionary-grid.flashcard-active .dict-card {
+        height: 160px;
+    }
+}
+
+@media screen and (max-width: 400px) {
+    .flashcard-text {
+        font-size: 26px;
+    }
+    .dex-nav {
+        margin-left: 8px;
+        gap: 0;
+    }
+
+    .dex-nav-item {
+        font-size: 12px;
+        padding: 6px 8px;
+    }
+
+    .dex-logo {
+        font-size: 16px;
+    }
+
+    .dex-logo img {
+        width: 24px !important;
+        height: 24px !important;
     }
 }
