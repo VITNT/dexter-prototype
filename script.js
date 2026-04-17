@@ -2,9 +2,14 @@ import { HandLandmarker, PoseLandmarker, FilesetResolver }
     from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
 
 
+
+
 // --- NEW: DEVICE DETECTOR ---
+// True if on a phone/tablet, False if on a PC
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-let showSkeletons = !isMobile;
+let showSkeletons = !isMobile; // Skeletons ON for PC, OFF for Mobile
+
+
 
 
 //camera and mode
@@ -17,6 +22,8 @@ let isPredicting = false;
 let curMode = "asl_letter";
 
 
+
+
 //confidence bar
 let extractTxt = document.getElementById('translationOutput');
 let conCol = document.getElementById('confidenceFill');
@@ -25,19 +32,20 @@ let guessTxt = document.getElementById('topGuessText');
 let displayWrd = document.getElementById('wordDisplay');
 
 
+
+
 //marker
 let hLM; //hand
 let pLM; //pose
 
 
-// --- NEW: DUAL AI BRAINS ---
-let aslBrain, cslBrain;
-let aslLabels = [], cslLabels = [];
 
 
-// The "Active" brain currently driving the app
-let activeBrain;
-let activeLabels = [];
+//asl
+let aslBrain;
+let aslLabels = [];
+
+
 
 
 //time and extract
@@ -50,6 +58,8 @@ const DURATION = 1500;
 const THRESHOLD = 0.90; //confidence lvl
 
 
+
+
 //streak
 let dynStr = 0;
 let ldg = "";
@@ -57,19 +67,20 @@ let staStr = 0;
 let lsg = "";
 
 
+
+
 //canvas
 const canvasElement = document.getElementsByClassName('canvasEl')[0];
 const canvasCtx = canvasElement.getContext('2d');
 
 
-// Global Memory Cache (The Ghost Hand fix)
-let lastLeftHand = new Array(21 * 3).fill(0);
-let lastRightHand = new Array(21 * 3).fill(0);
 
 
 //finger
 const { Thumb, Index, Middle, Ring, Pinky } = fp.Finger;
 const { NoCurl, HalfCurl, FullCurl } = fp.FingerCurl;
+
+
 
 
 //alphabets
@@ -102,6 +113,8 @@ const staticGestures = [
 const GE = new fp.GestureEstimator(staticGestures);
 
 
+
+
 //lines
 const HAND_LINE = [
     [0, 1], [1, 2], [2, 3], [3, 4],
@@ -119,9 +132,13 @@ const POSE_LINE = [
 ];
 
 
+
+
 //this function basically set the marker
 async function setUpMediaPipe() {
     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
+
+
 
 
     hLM = await HandLandmarker.createFromOptions(vision, {
@@ -131,39 +148,28 @@ async function setUpMediaPipe() {
     });
 
 
+
+
     pLM = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`, delegate: "GPU" },
         runningMode: "VIDEO"
     });
 
 
-    // --- NEW: LOAD BOTH BRAINS ---
-    try {
-        // Load ASL
-        const aslResponse = await fetch('./asl-labels.json');
-        aslLabels = await aslResponse.json();
-        aslBrain = await tf.loadLayersModel('./asl-model.json');
 
 
-        // Load CSL
-        const cslResponse = await fetch('./csl_labels.json');
-        cslLabels = await cslResponse.json();
-        cslBrain = await tf.loadLayersModel('./csl_model.json');
-
-
-        // Default to ASL on startup
-        activeBrain = aslBrain;
-        activeLabels = aslLabels;
-
-
-        console.log("Both ASL and CSL Brains Online!");
-    } catch (error) {
-        console.error("Error loading models. Check your filenames!", error);
-    }
+    const labelResponse = await fetch('./model_labels.json');
+    aslLabels = await labelResponse.json();
+    aslBrain = await tf.loadLayersModel('./my-asl-model.json');
+    console.log("Online");
 }
 
 
+
+
 setUpMediaPipe();
+
+
 
 
 function createSign(name, noCurls, halfCurls, fullCurls) {
@@ -175,6 +181,8 @@ function createSign(name, noCurls, halfCurls, fullCurls) {
 }
 
 
+
+
 function detectStaticAlphabet(hand) {
     const keypoints3D = hand.map(point => [point.x * canvasElement.width, point.y * canvasElement.height, point.z * canvasElement.width]);
     const estimation = GE.estimate(keypoints3D, 7.0);
@@ -183,137 +191,113 @@ function detectStaticAlphabet(hand) {
 }
 
 
+
+
 document.getElementById('themeToggleBtn').addEventListener('click', () => {
     document.body.classList.toggle('dark-mode');
 });
 
 
-// ==========================================
-// CUSTOM DROPDOWN UI LOGIC
-// ==========================================
 
 
 window.toggleDropdown = function () {
-    // Matches id="modeDropdownContent" in your HTML
-    document.getElementById('modeDropdownContent').classList.toggle('show');
+    document.getElementById("modeDropdownContent").classList.toggle("show");
 }
 
 
-window.selectMode = async function (modeKey, modeTitle, el) {
-    // 1. Update text (Matches id="selectedModeText")
-    document.getElementById('selectedModeText').innerText = modeTitle;
+// Close the dropdown if the user clicks outside of it
+window.onclick = function (event) {
+    if (!event.target.matches('.custom-dropdown-btn') && !event.target.closest('.custom-dropdown-btn')) {
+        let dropdowns = document.getElementsByClassName("custom-dropdown-content");
+        for (let i = 0; i < dropdowns.length; i++) {
+            let openDropdown = dropdowns[i];
+            if (openDropdown.classList.contains('show')) {
+                openDropdown.classList.remove('show');
+            }
+        }
+    }
+}
 
-    // 2. Change active highlight (Matches class="dropdown-item")
-    document.querySelectorAll('.dropdown-item').forEach(d => d.classList.remove('active'));
-    el.classList.add('active');
 
-    // 3. Close the menu
-    document.getElementById('modeDropdownContent').classList.remove('show');
+window.selectMode = async function (value, text, element) {
+    // Update UI
+    document.getElementById("selectedModeText").innerText = text;
+    document.getElementById("modeDropdownContent").classList.remove("show");
 
-    // 4. Reset variables
-    curMode = modeKey;
+
+    // Update active class
+    let items = document.querySelectorAll(".dropdown-item");
+    items.forEach(item => item.classList.remove("active"));
+    if (element) element.classList.add("active");
+
+
+    curMode = value;
     window.clearWord();
+
+
+
+
     staStr = 0;
     dynStr = 0;
 
 
-    // Grab UI elements
-    const guessTextEl = document.getElementById('topGuessText');
-    const outTextUI = document.getElementById('translationOutput');
 
 
-    // 5. Swap modes and AI Brains
-    if (curMode === "csl_word") {
-        guessTextEl.innerText = `Mode: ${modeTitle} (Holistic)`;
-        outTextUI.innerText = `[CSL]`;
-        activeBrain = cslBrain;
-        activeLabels = cslLabels;
-        if (hLM) await hLM.setOptions({ numHands: 2 });
-
-    } else if (curMode === "asl_word") {
-        guessTextEl.innerText = `Mode: ${modeTitle} (Holistic)`;
-        outTextUI.innerText = `[ASL]`;
-        activeBrain = aslBrain;
-        activeLabels = aslLabels;
-        if (hLM) await hLM.setOptions({ numHands: 2 });
-
-    } else {
-        guessTextEl.innerText = "Mode: ASL Spelling";
-        outTextUI.innerText = "...";
-        activeBrain = aslBrain;
-        activeLabels = aslLabels;
-        if (hLM) await hLM.setOptions({ numHands: 1 });
-    }
-}
-
-
-// Safely close dropdown if clicked outside (Matches class="custom-dropdown")
-window.addEventListener('click', function (event) {
-    if (!event.target.closest('.custom-dropdown')) {
-        let dc = document.getElementById("modeDropdownContent");
-        if (dc && dc.classList.contains('show')) dc.classList.remove('show');
-    }
-});
-
-
-// --- UPDATED: SMART MODE SWITCHER ---
-window.changeMode = async function () {
-    const selector = document.getElementById('modeSelector');
-    curMode = selector.value;
-    window.clearWord();
-    staStr = 0; dynStr = 0;
-
-
-    if (curMode === "csl_word") {
-        guessTxt.innerText = "Mode: CSL Words (Holistic)";
-        extractTxt.innerText = "[CSL]";
-        activeBrain = cslBrain;     // Switch to CSL
-        activeLabels = cslLabels;   // Switch to CSL
-        if (hLM) await hLM.setOptions({ numHands: 2 });
-
-    } else if (curMode === "asl_word") {
-        guessTxt.innerText = "Mode: ASL Words (Holistic)";
+    if (curMode === "asl_word") {
+        guessTxt.innerText = "Mode: ASL Words (Ready to Train)";
         extractTxt.innerText = "[ASL]";
-        activeBrain = aslBrain;     // Switch to ASL
-        activeLabels = aslLabels;   // Switch to ASL
-        if (hLM) await hLM.setOptions({ numHands: 2 });
-
+        if (hLM) await hLM.setOptions({
+            numHands: 2
+        });
+    } else if (curMode === "csl_word") {
+        guessTxt.innerText = "Mode: CSL Words (Ready to Train)";
+        extractTxt.innerText = "[CSL]";
+        if (hLM) await hLM.setOptions({
+            numHands: 2
+        });
     } else {
         guessTxt.innerText = "Mode: ASL Spelling";
         extractTxt.innerText = "...";
-        activeBrain = aslBrain;     // Default fallback
-        activeLabels = aslLabels;
-        if (hLM) await hLM.setOptions({ numHands: 1 });
+        if (hLM) await hLM.setOptions({
+            numHands: 1
+        });
     }
 
 
-    console.log("Mode Switched:", curMode);
+
+
+    console.log("Mode:", curMode);
 }
 
 
+
+
+// --- UPDATED: SMART CAMERA ---
 window.startCam = async function () {
     try {
         if (stream) window.stopCam();
 
+
+        // PC gets 720p at 30fps. Mobile gets 480p at 15fps.
         const cameraSettings = isMobile
             ? { facingMode: curCamera, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } }
             : { facingMode: curCamera, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
 
 
+
+
         stream = await navigator.mediaDevices.getUserMedia({ video: cameraSettings });
+
 
         videoEle.srcObject = stream;
         await videoEle.play();
         isPredicting = true;
         predictSign();
 
-
-        // Update Start/Stop button
         btnCam.textContent = "Stop Camera";
         btnCam.onclick = window.stopCam;
 
 
-        // Show and Reset Pause button
         if (btnPauseCam) {
             btnPauseCam.style.display = "inline-block";
             btnPauseCam.textContent = "Pause Camera";
@@ -323,10 +307,11 @@ window.startCam = async function () {
 }
 
 
+
+
 window.pauseCam = function () {
     videoEle.pause();
     isPredicting = false;
-
     if (btnPauseCam) {
         btnPauseCam.textContent = "Resume Camera";
         btnPauseCam.onclick = window.resumeCam;
@@ -338,13 +323,13 @@ window.resumeCam = async function () {
     await videoEle.play();
     isPredicting = true;
     predictSign();
-
-
     if (btnPauseCam) {
         btnPauseCam.textContent = "Pause Camera";
         btnPauseCam.onclick = window.pauseCam;
     }
 }
+
+
 
 
 window.stopCam = function () {
@@ -361,21 +346,18 @@ window.stopCam = function () {
     }
     isPredicting = false;
 
-
-    // Reset Start Button
     btnCam.textContent = "Start Camera";
     btnCam.onclick = window.startCam;
 
 
-    // Hide Pause Button
     if (btnPauseCam) {
         btnPauseCam.style.display = "none";
         btnPauseCam.textContent = "Pause Camera";
         btnPauseCam.onclick = window.pauseCam;
     }
-
-    resetHandMemory();
 }
+
+
 
 
 window.flipCam = async function () {
@@ -385,22 +367,30 @@ window.flipCam = async function () {
 }
 
 
+
+
 window.clearWord = function () {
     extWord = "";
     displayWrd.innerText = "";
 }
 
 
+
+
 window.translateSentence = async function () {
     if (!extWord) return;
     const translationUI = document.getElementById('finalTranslation');
-    translationUI.innerText = "Gemma is thinking...";
+    translationUI.innerText = "Gemma 3 is thinking...";
     try {
         const response = await fetch('/api/translate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ aslString: extWord })
         });
+
+
 
 
         if (!response.ok) {
@@ -409,6 +399,8 @@ window.translateSentence = async function () {
             translationUI.innerText = "Server Error: Model timed out or failed.";
             return;
         }
+
+
 
 
         const data = await response.json();
@@ -420,61 +412,11 @@ window.translateSentence = async function () {
 }
 
 
+
+
 const distant = (p1, p2) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
 
 
-// ==========================================
-// THE HOLISTIC DATA MERGER (With Ghost Hands)
-// ==========================================
-function extractHolisticData(poseResults, handResults) {
-    let poseData = new Array(33 * 3).fill(0);
-    let lhData = [...lastLeftHand];
-    let rhData = [...lastRightHand];
-
-
-    if (poseResults && poseResults.landmarks && poseResults.landmarks.length > 0) {
-        const pose = poseResults.landmarks[0];
-        for (let i = 0; i < pose.length; i++) {
-            poseData[i * 3] = pose[i].x;
-            poseData[i * 3 + 1] = pose[i].y;
-            poseData[i * 3 + 2] = pose[i].z;
-        }
-    }
-
-
-    if (handResults && handResults.landmarks && handResults.landmarks.length > 0) {
-        for (let h = 0; h < handResults.landmarks.length; h++) {
-            const hand = handResults.landmarks[h];
-            const handedness = handResults.handednesses[h][0].categoryName;
-
-
-            let tempHandArray = new Array(63);
-            for (let i = 0; i < hand.length; i++) {
-                tempHandArray[i * 3] = hand[i].x;
-                tempHandArray[i * 3 + 1] = hand[i].y;
-                tempHandArray[i * 3 + 2] = hand[i].z;
-            }
-
-
-            if (handedness === "Left") {
-                lhData = tempHandArray;
-                lastLeftHand = tempHandArray;
-            } else {
-                rhData = tempHandArray;
-                lastRightHand = tempHandArray;
-            }
-        }
-    }
-
-
-    return [...poseData, ...lhData, ...rhData];
-}
-
-
-function resetHandMemory() {
-    lastLeftHand = new Array(21 * 3).fill(0);
-    lastRightHand = new Array(21 * 3).fill(0);
-}
 
 
 //main action
@@ -486,12 +428,18 @@ async function predictSign() {
     }
 
 
+
+
     let startTimeMs = performance.now();
     if (videoEle.currentTime !== lastTime) {
         lastTime = videoEle.currentTime;
 
 
+
+
         prepareCanvas();
+
+
 
 
         const handResults = hLM.detectForVideo(videoEle, startTimeMs);
@@ -501,11 +449,15 @@ async function predictSign() {
         }
 
 
+
+
         drawSkeletons(poseResults, handResults);
 
 
-        if (handResults.landmarks && handResults.landmarks.length > 0 || poseResults) {
-            processHandLogic(handResults, poseResults);
+
+
+        if (handResults.landmarks && handResults.landmarks.length > 0) {
+            processHandLogic(handResults.landmarks[0]);
         } else {
             resetTrackingState();
         }
@@ -514,6 +466,9 @@ async function predictSign() {
 }
 
 
+
+
+//canvas line draw
 function prepareCanvas() {
     if (canvasElement.width !== videoEle.videoWidth) {
         canvasElement.width = videoEle.videoWidth;
@@ -523,8 +478,13 @@ function prepareCanvas() {
 }
 
 
+
+
+// --- UPDATED: SMART GRAPHICS ---
 function drawSkeletons(poseResults, handResults) {
-    if (!showSkeletons) return;
+    if (!showSkeletons) return; // Instantly skip rendering on mobile!
+
+
 
 
     if (poseResults && poseResults.landmarks && poseResults.landmarks.length > 0) {
@@ -542,6 +502,8 @@ function drawSkeletons(poseResults, handResults) {
     }
 
 
+
+
     if (handResults && handResults.landmarks) {
         for (const detectedHand of handResults.landmarks) {
             for (const connection of HAND_LINE) {
@@ -557,42 +519,35 @@ function drawSkeletons(poseResults, handResults) {
 }
 
 
+
+
 //brain
-function processHandLogic(handResults, poseResults) {
+function processHandLogic(hand) {
     let frameData = [];
-
-
-    if (curMode === "asl_letter") {
-        if (handResults.landmarks && handResults.landmarks.length > 0) {
-            const hand = handResults.landmarks[0];
-            for (let i = 0; i < hand.length; i++) {
-                frameData.push(hand[i].x, hand[i].y, hand[i].z);
-            }
-        }
-    } else {
-        frameData = extractHolisticData(poseResults, handResults);
+    for (let i = 0; i < hand.length; i++) {
+        frameData.push(hand[i].x, hand[i].y, hand[i].z);
     }
+    buffer.push(frameData);
+    if (buffer.length > F_LENGTH) buffer.shift();
 
 
-    if (frameData.length > 0) {
-        buffer.push(frameData);
-        if (buffer.length > F_LENGTH) buffer.shift();
-    }
 
 
     if (buffer.length === F_LENGTH) {
         if (curMode === "asl_letter") {
-            const hand = handResults.landmarks[0];
             const oldWrist = buffer[0];
             const newWrist = buffer[29];
             const movementDistance = Math.sqrt(
-                Math.pow(newWrist[0] - oldWrist[0], 2) + Math.pow(newWrist[1] - oldWrist[1], 2)
+                Math.pow(newWrist[0] - oldWrist[0], 2) +
+                Math.pow(newWrist[1] - oldWrist[1], 2)
             );
+
+
 
 
             if (movementDistance > 0.08) {
                 evaluateDynamicSign();
-            } else if (hand) {
+            } else {
                 evaluateStaticSign(hand);
             }
         } else {
@@ -602,35 +557,41 @@ function processHandLogic(handResults, poseResults) {
 }
 
 
+
+
 //dynamic
 function evaluateDynamicSign() {
     staStr = 0;
 
 
-    // Make sure we have a loaded brain before trying to predict!
-    if (!activeBrain) return;
 
 
     const inputTensor = tf.tensor3d([buffer]);
     let prediction;
     try {
-        prediction = activeBrain.predict(inputTensor); // <-- Uses the active brain!
+        prediction = aslBrain.predict(inputTensor);
     } catch (err) {
         inputTensor.dispose();
         return;
     }
 
 
+
+
     const predictionArray = prediction.dataSync();
     const highestIndex = prediction.argMax(1).dataSync()[0];
     const confidence = predictionArray[highestIndex];
-    const rawPredictedWord = activeLabels[highestIndex] || ""; // <-- Uses the active labels!
+    const rawPredictedWord = aslLabels[highestIndex] || "";
     const sanitizedWord = rawPredictedWord.trim().toLowerCase();
-    const isIdle = (sanitizedWord === "idle" || sanitizedWord === "none" || sanitizedWord === "" || sanitizedWord === "still");
+    const isIdle = (sanitizedWord === "idle" || sanitizedWord === "none" || sanitizedWord === "");
+
+
 
 
     if (!isIdle && confidence > THRESHOLD) {
         updateDynamicUI(rawPredictedWord, confidence);
+
+
 
 
         if (rawPredictedWord === ldg) {
@@ -641,7 +602,11 @@ function evaluateDynamicSign() {
         }
 
 
+
+
         let requiredStreak = 12;
+
+
 
 
         if (rawPredictedWord.toUpperCase() === "J") {
@@ -649,15 +614,18 @@ function evaluateDynamicSign() {
         }
 
 
+
+
         if (dynStr >= requiredStreak && Date.now() > cooldown) {
             commitWord(rawPredictedWord);
             dynStr = 0;
             buffer = [];
-            resetHandMemory();
         }
     } else {
         resetDynamicUI(confidence, isIdle);
     }
+
+
 
 
     inputTensor.dispose();
@@ -665,16 +633,24 @@ function evaluateDynamicSign() {
 }
 
 
+
+
 //static
 function evaluateStaticSign(hand) {
     dynStr = 0;
 
 
+
+
     const staticGuess = detectStaticAlphabet(hand);
+
+
 
 
     if (staticGuess) {
         let finalLetter = applyGeometricFixes(staticGuess.name, hand);
+
+
 
 
         if (finalLetter === lsg) {
@@ -685,7 +661,11 @@ function evaluateStaticSign(hand) {
         }
 
 
+
+
         updateStaticUI(finalLetter, staticGuess.score);
+
+
 
 
         if (staStr >= 3 && Date.now() > cooldown) {
@@ -697,8 +677,12 @@ function evaluateStaticSign(hand) {
 }
 
 
+
+
 function applyGeometricFixes(letter, hand) {
     let finalLetter = letter;
+
+
 
 
     if (['Y', 'I'].includes(finalLetter)) {
@@ -708,9 +692,13 @@ function applyGeometricFixes(letter, hand) {
     }
 
 
+
+
     if (['U', 'V', 'R', 'P', 'H', 'K'].includes(finalLetter)) {
         const deltaX = Math.abs(hand[8].x - hand[5].x);
         const deltaY = Math.abs(hand[8].y - hand[5].y);
+
+
 
 
         if (deltaX > deltaY * 1.2) { finalLetter = 'H'; }
@@ -730,6 +718,8 @@ function applyGeometricFixes(letter, hand) {
     }
 
 
+
+
     if (['D', 'Q', 'L', 'G'].includes(finalLetter)) {
         const deltaX = Math.abs(hand[8].x - hand[5].x);
         const deltaY = Math.abs(hand[8].y - hand[5].y);
@@ -743,6 +733,8 @@ function applyGeometricFixes(letter, hand) {
     }
 
 
+
+
     if (['C', 'O', 'F'].includes(finalLetter)) {
         const isMiddleStraightUp = hand[12].y < hand[10].y;
         if (isMiddleStraightUp) { finalLetter = 'F'; }
@@ -754,14 +746,20 @@ function applyGeometricFixes(letter, hand) {
     }
 
 
+
+
     if (['A', 'E', 'S', 'T', 'M', 'N'].includes(finalLetter)) {
         const isFlipped = hand[5].x > hand[17].x;
         let thumbX = hand[4].x; let indX = hand[5].x; let ringX = hand[13].x;
         if (isFlipped) { thumbX = -thumbX; indX = -indX; ringX = -ringX; }
 
 
+
+
         const handWidth = ringX - indX;
         const thumbProgress = thumbX - indX;
+
+
 
 
         if (hand[4].y > hand[5].y + 0.05) { finalLetter = 'E'; }
@@ -773,8 +771,12 @@ function applyGeometricFixes(letter, hand) {
     }
 
 
+
+
     return finalLetter;
 }
+
+
 
 
 //ui
@@ -785,6 +787,8 @@ function updateDynamicUI(word, confidence) {
     conTxt.innerText = confidencePercent + "%";
     guessTxt.innerText = "Motion: " + word;
 }
+
+
 
 
 function resetDynamicUI(confidence, isIdle) {
@@ -798,6 +802,8 @@ function resetDynamicUI(confidence, isIdle) {
 }
 
 
+
+
 function updateStaticUI(letter, score) {
     const confPercent = Math.round((score / 10) * 100);
     conCol.style.width = confPercent + "%";
@@ -807,6 +813,8 @@ function updateStaticUI(letter, score) {
 }
 
 
+
+
 function resetStaticUI() {
     staStr = 0;
     conCol.style.width = "0%";
@@ -814,6 +822,8 @@ function resetStaticUI() {
     conTxt.innerText = "0%";
     if (Date.now() > cooldown) extractTxt.innerText = "...";
 }
+
+
 
 
 function commitStaticLetter(letter) {
@@ -827,12 +837,16 @@ function commitStaticLetter(letter) {
 }
 
 
+
+
 function commitWord(word) {
     extractTxt.innerText = word;
     extWord += word + " ";
     displayWrd.innerText = extWord;
     cooldown = Date.now() + DURATION;
 }
+
+
 
 
 function resetTrackingState() {
@@ -842,11 +856,13 @@ function resetTrackingState() {
     lsg = "";
 
 
+
+
     if (Date.now() > cooldown) {
         extractTxt.innerText = "...";
         conCol.style.width = "0%";
         if (curMode === "asl_word" || curMode === "csl_word") {
-            guessTxt.innerText = "Waiting for input... [Ready]";
+            guessTxt.innerText = "Waiting for input... [Model Missing]";
         } else {
             guessTxt.innerText = "None";
         }
