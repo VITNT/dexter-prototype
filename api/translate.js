@@ -14,7 +14,6 @@ module.exports = async function handler(req, res) {
 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=${API_KEY}`;
 
-        // 🔥 Clean + strict prompt
         const prompt = `
 Translate this ASL gloss into natural English.
 
@@ -36,7 +35,10 @@ ASL: ${aslString}
                 generationConfig: {
                     temperature: 0.2,
                     maxOutputTokens: 50,
-                    topP: 0.8
+                    topP: 0.8,
+                    thinkingConfig: {
+                        thinkingLevel: "MINIMAL"
+                    }
                 }
             })
         });
@@ -51,36 +53,22 @@ ASL: ${aslString}
             });
         }
 
-        // ✅ Safe extraction
-        let rawText =
-            data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        // ✅ Safe extraction — skip "thought" parts from thinking models
+        const parts = data?.candidates?.[0]?.content?.parts || [];
+        const outputPart = parts.filter(p => !p.thought).pop();
+        let rawText = outputPart?.text || "";
 
-        // 🔧 FULL CLEANING PIPELINE
+        // 🔧 Light cleanup
         let cleaned = rawText
-            // Remove reasoning
-            .replace(/[\s\S]*?→/g, "")
-            .replace(/Wait,.*?\n/g, "")
-            .replace(/Maybe.*?\n/g, "")
-            .replace(/Let’s.*?\n/g, "")
-            .replace(/If.*?\n/g, "")
-            .replace(/First,.*?\n/g, "")
-            .replace(/Then,.*?\n/g, "")
-
-            // Remove markdown / bullets / numbering / leading junk
+            // Remove markdown formatting / bullets / numbering
             .replace(/^[*\-•\d.\)\s"]+/gm, "")
-
             // Remove wrapping quotes
             .replace(/^["']|["']$/g, "")
-
             .trim();
 
-        // Keep only last meaningful line
-        cleaned = cleaned
-            .split("\n")
-            .filter(line => line.trim() !== "")
-            .pop() || "";
-
-        cleaned = cleaned.trim();
+        // If multi-line, keep only the last meaningful line
+        const lines = cleaned.split("\n").filter(l => l.trim() !== "");
+        cleaned = (lines.pop() || "").trim();
 
         // 🔧 Final formatting (guarantee sentence)
         if (cleaned) {
