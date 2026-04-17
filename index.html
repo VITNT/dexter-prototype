@@ -46,8 +46,6 @@
             <div class="custom-dropdown-content" id="modeMenu">
               <div class="dropdown-item active" onclick="window.selectMode('asl_letter', 'ASL Spelling', this)">ASL
                 Spelling</div>
-              <div class="dropdown-item" onclick="window.selectMode('asl_word', 'ASL Words (WIP)', this)">ASL Words
-              </div>
               <div class="dropdown-item" onclick="window.selectMode('csl_word', 'CSL Words', this)">CSL Words
               </div>
             </div>
@@ -89,7 +87,7 @@
 
       <div class="dex-box output-box">
         <div class="dex-box-header">
-          <div class="dex-lang-tab active">English</div>
+          <div class="dex-lang-tab active" id="outputLangLabel">English</div>
           <button class="dex-icon-btn clear-btn" onclick="clearWord()" title="Clear translation">
             <svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#5f6368" width="24px"
               height="24px">

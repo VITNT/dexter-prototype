@@ -189,17 +189,20 @@ window.selectMode = async function (modeId, modeLabel, element) {
 
     const guessLabelUI = document.getElementById('guessLabel');
     const rawOutputUI = document.getElementById('liveOutput');
+    const outputLangUI = document.getElementById('outputLangLabel');
 
     if (currentTrackingMode === "csl_word") {
-        guessLabelUI.innerText = `Mode: ${modeLabel} (Holistic)`;
+        guessLabelUI.innerText = `Mode: ${modeLabel}`;
         rawOutputUI.innerText = `[CSL]`;
+        if (outputLangUI) outputLangUI.innerText = "Khmer";
         activeAIModel = cslModel;
         activeVocabulary = cslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
 
     } else if (currentTrackingMode === "asl_word") {
-        guessLabelUI.innerText = `Mode: ${modeLabel} (Holistic)`;
+        guessLabelUI.innerText = `Mode: ${modeLabel}`;
         rawOutputUI.innerText = `[ASL]`;
+        if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslModel;
         activeVocabulary = aslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
@@ -207,6 +210,7 @@ window.selectMode = async function (modeId, modeLabel, element) {
     } else {
         guessLabelUI.innerText = "Mode: ASL Spelling";
         rawOutputUI.innerText = "...";
+        if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslModel;
         activeVocabulary = aslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 1 });
@@ -234,16 +238,20 @@ window.changeMode = async function () {
     staticSignStreak = 0; dynamicSignStreak = 0;
 
 
+    const outputLangUI = document.getElementById('outputLangLabel');
+
     if (currentTrackingMode === "csl_word") {
-        guessLabelDisplay.innerText = "Mode: CSL Words (Holistic)";
+        guessLabelDisplay.innerText = "Mode: CSL Words";
         rawExtractionDisplay.innerText = "[CSL]";
+        if (outputLangUI) outputLangUI.innerText = "Khmer";
         activeAIModel = cslModel;
         activeVocabulary = cslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
 
     } else if (currentTrackingMode === "asl_word") {
-        guessLabelDisplay.innerText = "Mode: ASL Words (Holistic)";
+        guessLabelDisplay.innerText = "Mode: ASL Words";
         rawExtractionDisplay.innerText = "[ASL]";
+        if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslModel;
         activeVocabulary = aslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
@@ -251,6 +259,7 @@ window.changeMode = async function () {
     } else {
         guessLabelDisplay.innerText = "Mode: ASL Spelling";
         rawExtractionDisplay.innerText = "...";
+        if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslModel;
         activeVocabulary = aslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 1 });
@@ -332,6 +341,8 @@ window.stopCam = function () {
         pauseToggleBtn.onclick = window.pauseCam;
     }
 
+    // Clear the drawing canvas so old lines don't stay on screen
+    canvasContext.clearRect(0, 0, overlayCanvasElement.width, overlayCanvasElement.height);
     clearHandCache();
 }
 
