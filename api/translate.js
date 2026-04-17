@@ -14,7 +14,7 @@ module.exports = async function handler(req, res) {
 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=${API_KEY}`;
 
-        // 🔥 Short + strict prompt (better compliance)
+        // 🔥 Clean + strict prompt
         const prompt = `
 Translate this ASL gloss into natural English.
 
@@ -51,28 +51,47 @@ ASL: ${aslString}
             });
         }
 
-        // ✅ Safe extraction (prevents crashes if structure changes)
+        // ✅ Safe extraction
         let rawText =
             data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-        // 🔧 HARD CLEAN: remove reasoning / chain-of-thought
+        // 🔧 FULL CLEANING PIPELINE
         let cleaned = rawText
-            .replace(/[\s\S]*?→/g, "")        // remove "X → Y" reasoning
+            // Remove reasoning
+            .replace(/[\s\S]*?→/g, "")
             .replace(/Wait,.*?\n/g, "")
             .replace(/Maybe.*?\n/g, "")
             .replace(/Let’s.*?\n/g, "")
             .replace(/If.*?\n/g, "")
             .replace(/First,.*?\n/g, "")
             .replace(/Then,.*?\n/g, "")
+
+            // Remove markdown / bullets / numbering / leading junk
+            .replace(/^[*\-•\d.\)\s"]+/gm, "")
+
+            // Remove wrapping quotes
+            .replace(/^["']|["']$/g, "")
+
             .trim();
 
-        // Keep only last line (usually final answer)
-        cleaned = cleaned.split("\n").pop().trim();
+        // Keep only last meaningful line
+        cleaned = cleaned
+            .split("\n")
+            .filter(line => line.trim() !== "")
+            .pop() || "";
 
-        // Extra safety: remove quotes if model wraps answer
-        cleaned = cleaned.replace(/^["']|["']$/g, "");
+        cleaned = cleaned.trim();
 
-        if (!cleaned) {
+        // 🔧 Final formatting (guarantee sentence)
+        if (cleaned) {
+            cleaned =
+                cleaned.charAt(0).toUpperCase() +
+                cleaned.slice(1);
+
+            if (!cleaned.endsWith(".")) {
+                cleaned += ".";
+            }
+        } else {
             cleaned = "Unable to generate translation.";
         }
 
