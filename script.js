@@ -311,7 +311,7 @@ window.clearWord = function () {
 window.translateSentence = async function () {
     if (!extWord) return;
     const translationUI = document.getElementById('finalTranslation');
-    translationUI.innerText = "Gemma 3 is thinking...";
+    translationUI.innerText = "Gemma 4 is thinking...";
     try {
         const response = await fetch('/api/translate', {
             method: 'POST',

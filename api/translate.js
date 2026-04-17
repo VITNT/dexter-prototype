@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
 
 
         const API_KEY = process.env.GEMINI_API_KEY;
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key=${API_KEY}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=${API_KEY}`;
 
         const prompt = `You are an expert ASL translator. Convert this raw ASL gloss string into a natural, grammatically correct English sentence.
 
