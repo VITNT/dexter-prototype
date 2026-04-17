@@ -193,8 +193,14 @@ function detectStaticAlphabet(hand) {
 
 
 
+// Restore dark mode preference on load
+if (localStorage.getItem('darkMode') === 'true') {
+    document.body.classList.add('dark-mode');
+}
+
 document.getElementById('themeToggleBtn').addEventListener('click', () => {
     document.body.classList.toggle('dark-mode');
+    localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
 });
 
 
@@ -380,7 +386,7 @@ window.clearWord = function () {
 window.translateSentence = async function () {
     if (!extWord) return;
     const translationUI = document.getElementById('finalTranslation');
-    translationUI.innerText = "Gemma 3 is thinking...";
+    translationUI.innerText = "Dexter is thinking...";
     try {
         const response = await fetch('/api/translate', {
             method: 'POST',
