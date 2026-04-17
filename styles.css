@@ -2,7 +2,7 @@
 
 body {
     background-color: #f8f9fa;
-    /* GT light grey background */
+    /* App light grey background */
     color: #3c4043;
     margin: 0;
     text-align: left;
@@ -10,7 +10,7 @@ body {
 }
 
 /* Header */
-.gt-header {
+.dex-header {
     background-color: rgba(255, 255, 255, 0.75);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -23,28 +23,28 @@ body {
     z-index: 1000;
 }
 
-.gt-logo {
+.dex-logo {
     font-size: 22px;
     font-weight: 500;
 }
 
-.gt-logo .gt-blue {
+.dex-logo .dex-blue {
     color: #1a73e8;
 }
 
-.gt-logo .gt-grey {
+.dex-logo .dex-grey {
     color: #5f6368;
 }
 
 /* Main Content Wrapper */
-.gt-main {
+.dex-main {
     padding: 24px 16px;
     display: flex;
     justify-content: center;
 }
 
 /* The dual-card container */
-.gt-card-container {
+.dex-card-container {
     display: flex;
     gap: 16px;
     max-width: 1300px;
@@ -54,7 +54,7 @@ body {
 }
 
 /* The Individual Boxes (Input & Output) */
-.gt-box {
+.dex-box {
     background-color: #ffffff;
     border-radius: 12px;
     border: 1px solid #dadce0;
@@ -68,7 +68,7 @@ body {
 }
 
 /* Box Header (Language Tabs) */
-.gt-box-header {
+.dex-box-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -78,7 +78,7 @@ body {
     box-sizing: border-box;
 }
 
-.gt-lang-tab {
+.dex-lang-tab {
     font-size: 14px;
     font-weight: 500;
     color: #1a73e8;
@@ -87,7 +87,7 @@ body {
 }
 
 /* Clear icon button inside output box header */
-.gt-icon-btn {
+.dex-icon-btn {
     background: transparent;
     border: none;
     border-radius: 50%;
@@ -100,12 +100,12 @@ body {
     transition: background 0.2s;
 }
 
-.gt-icon-btn:hover {
+.dex-icon-btn:hover {
     background: #f1f3f4;
 }
 
 /* Box Content */
-.gt-box-content {
+.dex-box-content {
     flex-grow: 1;
     padding: 16px;
     display: flex;
@@ -144,7 +144,7 @@ canvas {
 }
 
 /* Box Footer */
-.gt-box-footer {
+.dex-box-footer {
     padding: 12px 16px;
     border-top: 1px solid #f1f3f4;
     display: flex;
@@ -153,15 +153,15 @@ canvas {
     box-sizing: border-box;
 }
 
-.gt-controls-left {
+.dex-controls-left {
     display: flex;
     gap: 12px;
     align-items: center;
 }
 
 /* Primary blue button */
-.gt-btn-primary,
-.gt-btn-translate {
+.dex-btn-primary,
+.dex-btn-translate {
     background-color: #1a73e8;
     color: white;
     padding: 10px 24px;
@@ -175,8 +175,8 @@ canvas {
     transition: background 0.2s, box-shadow 0.2s;
 }
 
-.gt-btn-primary:hover,
-.gt-btn-translate:hover {
+.dex-btn-primary:hover,
+.dex-btn-translate:hover {
     background-color: #1b66c9;
     box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3);
 }
@@ -186,7 +186,7 @@ canvas {
     /* Align right on output */
 }
 
-/* Debug panel integrated cleanly */
+/* Debug / confidence panel */
 .debug-panel {
     margin-top: 16px;
     font-size: 12px;
@@ -208,7 +208,7 @@ canvas {
     overflow: hidden;
 }
 
-#confidenceFill {
+#confidenceBar {
     height: 100%;
     width: 0%;
     background: #34a853;
@@ -216,28 +216,28 @@ canvas {
     transition: width 0.1s;
 }
 
-/* Translation Text */
-.gt-output-content {
+/* Live translation output */
+.dex-output-content {
     padding: 24px;
 }
 
-#translationOutput {
+#liveOutput {
     font-size: 32px;
-    /* standard GT font size */
+    /* standard app font size */
     font-weight: 400;
     color: #202124;
     min-height: 80px;
     outline: none;
 }
 
-/* Extracted Word Area */
+/* Built sentence area */
 .word-panel {
     margin-top: 30px;
     padding-top: 16px;
     border-top: 1px dashed #dadce0;
 }
 
-#wordDisplay {
+#builtSentence {
     font-size: 24px;
     font-weight: 500;
     color: #1a73e8;
@@ -246,7 +246,7 @@ canvas {
     word-wrap: break-word;
 }
 
-#finalTranslation {
+#translatedResult {
     color: #188038;
     /* dark green */
     font-size: 18px;
@@ -260,47 +260,47 @@ body.dark-mode {
     color: #e8eaed;
 }
 
-body.dark-mode .gt-header {
+body.dark-mode .dex-header {
     background-color: rgba(32, 33, 36, 0.75);
     border-bottom: 1px solid rgba(60, 64, 67, 0.6);
 }
 
-body.dark-mode .gt-box {
+body.dark-mode .dex-box {
     background-color: #292a2d;
     border-color: #3c4043;
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.15);
 }
 
-body.dark-mode .gt-logo .gt-blue,
-body.dark-mode .gt-lang-tab {
+body.dark-mode .dex-logo .dex-blue,
+body.dark-mode .dex-lang-tab {
     color: #8ab4f8;
 }
 
-body.dark-mode .gt-logo .gt-grey {
+body.dark-mode .dex-logo .dex-grey {
     color: #9aa0a6;
 }
 
-body.dark-mode .gt-box-header,
-body.dark-mode .gt-box-footer {
+body.dark-mode .dex-box-header,
+body.dark-mode .dex-box-footer {
     border-color: #3c4043;
 }
 
-body.dark-mode .gt-icon-btn:hover {
+body.dark-mode .dex-icon-btn:hover {
     background: #3c4043;
 }
 
-body.dark-mode .gt-icon-btn svg {
+body.dark-mode .dex-icon-btn svg {
     fill: #9aa0a6;
 }
 
-body.dark-mode .gt-btn-primary,
-body.dark-mode .gt-btn-translate {
+body.dark-mode .dex-btn-primary,
+body.dark-mode .dex-btn-translate {
     background-color: #8ab4f8;
     color: #202124;
 }
 
-body.dark-mode .gt-btn-primary:hover,
-body.dark-mode .gt-btn-translate:hover {
+body.dark-mode .dex-btn-primary:hover,
+body.dark-mode .dex-btn-translate:hover {
     background-color: #aecbfa;
 }
 
@@ -313,7 +313,7 @@ body.dark-mode .bar-container {
     background: #5f6368;
 }
 
-body.dark-mode #translationOutput {
+body.dark-mode #liveOutput {
     color: #e8eaed;
 }
 
@@ -321,15 +321,15 @@ body.dark-mode .word-panel {
     border-top-color: #5f6368;
 }
 
-body.dark-mode #wordDisplay {
+body.dark-mode #builtSentence {
     color: #8ab4f8;
 }
 
-body.dark-mode #finalTranslation {
+body.dark-mode #translatedResult {
     color: #81c995;
 }
 
-/* User Toggle Button */
+/* Dark mode toggle button */
 .theme-toggle-btn {
     background: transparent;
     border: none;
@@ -441,18 +441,18 @@ body.dark-mode .dropdown-item.active {
 
 /* --- RESPONSIVE MOBILE LAYOUT --- */
 @media screen and (max-width: 800px) {
-    .gt-main {
+    .dex-main {
         padding: 12px 8px;
         /* reduce padding on main wrapper */
     }
 
-    .gt-card-container {
+    .dex-card-container {
         flex-direction: column;
         /* Stack the input and output boxes! */
         gap: 16px;
     }
 
-    .gt-box {
+    .dex-box {
         flex: none;
         /* Crucial: stops the box from collapsing its height in a flex column */
         min-height: auto;
@@ -466,29 +466,29 @@ body.dark-mode .dropdown-item.active {
         border-radius: 6px;
     }
 
-    #translationOutput {
+    #liveOutput {
         font-size: 28px;
         /* Slightly smaller for mobile */
         min-height: 60px;
     }
 
-    #wordDisplay {
+    #builtSentence {
         font-size: 20px;
     }
 
-    .gt-header {
+    .dex-header {
         padding: 12px 16px;
     }
 
-    .gt-box-content {
+    .dex-box-content {
         padding: 12px;
     }
 
-    .gt-box-footer {
+    .dex-box-footer {
         padding: 12px;
     }
 
-    .gt-controls-left {
+    .dex-controls-left {
         flex-wrap: wrap;
         /* Ensure buttons wrap if they overflow */
     }
