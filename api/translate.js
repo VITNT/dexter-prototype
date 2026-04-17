@@ -18,29 +18,19 @@ module.exports = async function handler(req, res) {
         const API_KEY = process.env.GEMINI_API_KEY;
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=${API_KEY}`;
 
-        const prompt = `You are an expert ASL translator. Convert this raw ASL gloss string into a natural, grammatically correct English sentence.
+        const prompt = `You are an expert ASL translator. Translate the following raw ASL gloss string into a single natural, grammatically correct English sentence.
+The input ASL gloss may contain merged words with no spaces. You must silently interpret the correct word boundaries based on context and semantics to form a coherent sentence before translating.
 
+CRITICAL INSTRUCTION: You must respond ONLY with the final English sentence. Do not include any explanations, thinking process, markdown formatting, or bullet points.
 
-        The input contains merged words with no spaces. First, split the text into words.
-        When splitting:
-        - Prefer word groupings that form a coherent, meaningful sentence.
-        - Avoid splits that create unrelated or nonsensical words.
-        - Use context to choose the most logical interpretation.
+Raw ASL: HELLOHOWAREYOU
+Translation: Hello, how are you?
 
+Raw ASL: IWORKSTORE
+Translation: I work at the store.
 
-        If multiple splits are possible, choose the one that makes the most sense semantically.
-        Then translate into a clear, natural English sentence.
-
-        NO THINKING: Do not show any internal reasoning, chain-of-thought, or "Option 1 / Option 2" analysis.
-
-        NO STEPS: Do not list the word-splitting process.
-
-        ONLY THE RESULT: Output ONLY the final English sentence and nothing else.
-
-        Output exactly one short, concise sentence.
-        Do not include explanations, intermediate steps, or alternative interpretations.
-       
-        Raw ASL: "${aslString}"`;
+Raw ASL: ${aslString}
+Translation:`;
 
 
         const response = await fetch(url, {
@@ -61,8 +51,22 @@ module.exports = async function handler(req, res) {
         }
 
 
-        const translation = data.candidates[0].content.parts[0].text;
+        let translation = data.candidates[0].content.parts[0].text.trim();
 
+        // Fallback: if the model still outputs thinking, attempt to clean it up
+        translation = translation.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        
+        // Remove common prefixes it might mistakenly include
+        if (translation.toLowerCase().startsWith('translation:')) {
+            translation = translation.substring(12).trim();
+        } else if (translation.toLowerCase().startsWith('* output:')) {
+            translation = translation.substring(9).trim();
+        }
+        
+        // Remove surrounding quotes if present
+        if (translation.startsWith('"') && translation.endsWith('"')) {
+            translation = translation.slice(1, -1).trim();
+        }
 
         return res.status(200).json({ translation: translation });
 
