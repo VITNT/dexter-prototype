@@ -14,7 +14,7 @@ module.exports = async function handler(req, res) {
 
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
 
-        // keep the prompt strict — Gemma likes to ramble if you let it
+        // keep the prompt strict, otherwise the AI tends to go off on tangents
         const prompt = `You are an ASL gloss-to-English translator.
 
 ASL gloss is a written representation of American Sign Language where each word is an English label for a specific sign. The words are NOT foreign language words — they are literal English names for hand signs. Do NOT try to interpret or translate the individual words as if they are from another language. Just rearrange them into a natural English sentence.
@@ -58,22 +58,22 @@ English:`;
             });
         }
 
-        // thinking models sometimes include their reasoning, so we filter that out
+        // filter out the model's internal thinking process so we only return the final translation
         const parts = payload?.candidates?.[0]?.content?.parts || [];
         const finalPart = parts.filter(p => !p.thought).pop();
         let rawText = finalPart?.text || "";
 
-        // clean up any markdown junk, bullets, or stray quotes the model added
+        // clean up any markdown formatting or bullet points the model might have added
         let sentence = rawText
             .replace(/^[*\-•\d.\)\s"]+/gm, "")
             .replace(/^["']|["']$/g, "")
             .trim();
 
-        // if the model gave us multiple lines, the actual answer is usually the last one
+        // if it still managed to ramble, usually the final sentence is the actual answer
         const lines = sentence.split("\n").filter(l => l.trim() !== "");
         sentence = (lines.pop() || "").trim();
 
-        // capitalize and add a period so it looks like a proper sentence
+        // capitalize the first letter and add a period if it's missing
         if (sentence) {
             sentence =
                 sentence.charAt(0).toUpperCase() +

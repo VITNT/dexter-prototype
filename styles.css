@@ -2,7 +2,6 @@
 
 body {
     background-color: #f8f9fa;
-    /* App light grey background */
     color: #3c4043;
     margin: 0;
     text-align: left;
@@ -11,9 +10,7 @@ body {
 
 /* Header */
 .dex-header {
-    background-color: rgba(255, 255, 255, 0.55);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    background-color: #ffffff;
     padding: 14px 24px;
     display: flex;
     align-items: center;
@@ -21,11 +18,11 @@ body {
     gap: 8px;
     border-bottom: 1px solid rgba(218, 220, 224, 0.4);
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
-    position: -webkit-sticky; /* For Safari */
+    position: -webkit-sticky;
+    /* For Safari */
     position: sticky;
     top: 0;
     z-index: 1000;
-    will-change: transform; /* GPU layer promotion for smoother scrolling */
 }
 
 .dex-logo {
@@ -282,7 +279,8 @@ canvas {
     white-space: nowrap;
 }
 
-.dex-nav-item:hover, .dex-nav-item.active {
+.dex-nav-item:hover,
+.dex-nav-item.active {
     color: #1a73e8;
     background-color: rgba(26, 115, 232, 0.08);
 }
@@ -296,11 +294,9 @@ canvas {
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
-    background-color: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    background-color: #ffffff;
     min-width: 170px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
     border-radius: 12px;
     border: 1px solid rgba(218, 220, 224, 0.5);
     padding: 6px;
@@ -381,7 +377,7 @@ canvas {
 .dict-tab.active {
     background-color: white;
     color: #1a73e8;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .dictionary-grid {
@@ -398,7 +394,7 @@ canvas {
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     height: auto;
     transition: transform 0.2s, box-shadow 0.2s;
 }
@@ -407,7 +403,8 @@ canvas {
 .dictionary-grid.flashcard-active .dict-card {
     background-color: transparent;
     perspective: 1000px;
-    height: 200px; /* Base height for 3D shape */
+    height: 200px;
+    /* Base height for 3D shape */
     cursor: pointer;
     border: none;
     box-shadow: none;
@@ -436,7 +433,7 @@ canvas {
     transform: rotateY(180deg);
 }
 
-.dictionary-grid.flashcard-active .dict-card-front, 
+.dictionary-grid.flashcard-active .dict-card-front,
 .dictionary-grid.flashcard-active .dict-card-back {
     position: absolute;
     width: 100%;
@@ -444,7 +441,7 @@ canvas {
     backface-visibility: hidden;
     border-radius: 12px;
     border: 1px solid #dadce0;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     background-color: white;
     overflow: hidden;
     display: flex;
@@ -453,12 +450,13 @@ canvas {
 
 /* Normal Mode (Flashcard Disabled) */
 .dictionary-grid:not(.flashcard-active) .dict-card-front {
-    display: none; /* Hide front face */
+    display: none;
+    /* Hide front face */
 }
 
 .dictionary-grid:not(.flashcard-active) .dict-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 .dict-card-front {
@@ -530,18 +528,18 @@ canvas {
     background-color: white;
     transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
     border-radius: 50%;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
-.custom-switch input:checked + .slider {
+.custom-switch input:checked+.slider {
     background-color: #1a73e8;
 }
 
-.custom-switch input:focus + .slider {
+.custom-switch input:focus+.slider {
     box-shadow: 0 0 1px #1a73e8;
 }
 
-.custom-switch input:checked + .slider:before {
+.custom-switch input:checked+.slider:before {
     transform: translateX(20px);
 }
 
@@ -563,13 +561,15 @@ canvas {
     object-fit: contain;
     padding: 8px;
     box-sizing: border-box;
-    display: none; /* Hide until src is set */
+    display: none;
+    /* Hide until src is set */
 }
 
 .dict-img-placeholder img[src] {
     display: block;
 }
-.dict-img-placeholder img[src] + span {
+
+.dict-img-placeholder img[src]+span {
     display: none;
 }
 
@@ -595,7 +595,7 @@ canvas {
     width: 100%;
     border-radius: 12px;
     border: 1px solid #dadce0;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 /* --- DARK MODE OVERRIDES --- */
@@ -605,9 +605,7 @@ body.dark-mode {
 }
 
 body.dark-mode .dex-header {
-    background-color: rgba(32, 33, 36, 0.6);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    background-color: #202124;
     border-bottom: 1px solid rgba(60, 64, 67, 0.4);
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
 }
@@ -680,15 +678,14 @@ body.dark-mode .dex-nav-item {
     color: #9aa0a6;
 }
 
-body.dark-mode .dex-nav-item:hover, body.dark-mode .dex-nav-item.active {
+body.dark-mode .dex-nav-item:hover,
+body.dark-mode .dex-nav-item.active {
     color: #8ab4f8;
     background-color: rgba(138, 180, 248, 0.08);
 }
 
 body.dark-mode .dex-nav-dropdown-content {
-    background-color: rgba(41, 42, 45, 0.85);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    background-color: #292a2d;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
     border-color: rgba(60, 64, 67, 0.4);
 }
@@ -720,7 +717,7 @@ body.dark-mode .dict-tab.active {
 }
 
 body.dark-mode .dict-card,
-body.dark-mode .dictionary-grid.flashcard-active .dict-card-front, 
+body.dark-mode .dictionary-grid.flashcard-active .dict-card-front,
 body.dark-mode .dictionary-grid.flashcard-active .dict-card-back {
     background-color: #292a2d;
     border-color: #3c4043;
@@ -738,11 +735,11 @@ body.dark-mode .custom-switch .slider {
     background-color: #5f6368;
 }
 
-body.dark-mode .custom-switch input:checked + .slider {
+body.dark-mode .custom-switch input:checked+.slider {
     background-color: #8ab4f8;
 }
 
-body.dark-mode .custom-switch input:checked + .slider:before {
+body.dark-mode .custom-switch input:checked+.slider:before {
     background-color: #202124;
 }
 
@@ -758,7 +755,7 @@ body.dark-mode .dict-label {
 
 body.dark-mode .dict-reference-chart img {
     border-color: #3c4043;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 /* Dark mode toggle button */
@@ -818,7 +815,8 @@ body.dark-mode .theme-toggle-btn svg {
     position: absolute;
     background-color: #ffffff;
     min-width: 180px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08); /* Google shadow */
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+    /* Google shadow */
     z-index: 100;
     border-radius: 8px;
     padding: 8px 0;
@@ -844,7 +842,8 @@ body.dark-mode .theme-toggle-btn svg {
 }
 
 .dropdown-item.active {
-    background-color: #e8f0fe; /* Google light blue active */
+    background-color: #e8f0fe;
+    /* Google light blue active */
     color: #1a73e8;
 }
 
@@ -867,7 +866,8 @@ body.dark-mode .dropdown-item:hover {
 }
 
 body.dark-mode .dropdown-item.active {
-    background-color: #3c4043; /* slightly different for dark mode */
+    background-color: #3c4043;
+    /* slightly different for dark mode */
     color: #8ab4f8;
 }
 
@@ -955,18 +955,13 @@ body.dark-mode .dropdown-item.active {
     .dictionary-grid.flashcard-active .dict-card {
         height: 160px;
     }
-
-    /* Reduce heavy blur on mobile to ease GPU compositing */
-    .dex-header {
-        backdrop-filter: blur(12px) saturate(150%);
-        -webkit-backdrop-filter: blur(12px) saturate(150%);
-    }
 }
 
 @media screen and (max-width: 400px) {
     .flashcard-text {
         font-size: 26px;
     }
+
     .dex-nav {
         margin-left: 8px;
         gap: 0;
@@ -982,7 +977,7 @@ body.dark-mode .dropdown-item.active {
     }
 
     .dex-logo img {
-        width: 24px !important;
-        height: 24px !important;
+        width: 32px !important;
+        height: 32px !important;
     }
 }
