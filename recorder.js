@@ -17,13 +17,13 @@ const SEQUENCE_LENGTH = 30;
 let frameBuffer = [];
 
 
-// --- STATE ---
+// recording state
 let isCapturing = false;
 let capturedFrames = [];
-let trackingMode = "hands"; // starts in alphabet mode
+let trackingMode = "hands"; // defaults to single-hand alphabet mode
 
 
-// --- MEDIAPIPE ---
+// mediapipe trackers
 let handTracker;
 let poseTracker;
 let lastFrameTime = -1;
@@ -46,13 +46,13 @@ const POSE_BONES = [
 ];
 
 
-// --- LOAD MODELS ---
+// load up the hand and pose models
 async function initTrackers() {
     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
 
     handTracker = await HandLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`, delegate: "GPU" },
-        runningMode: "VIDEO", numHands: 1 // defaults to 1 hand for alphabet tracking
+        runningMode: "VIDEO", numHands: 1
     });
 
     poseTracker = await PoseLandmarker.createFromOptions(vision, {
@@ -66,7 +66,7 @@ async function initTrackers() {
 initTrackers();
 
 
-// --- CAMERA CONTROLS ---
+// camera and mode controls
 window.toggleMode = async function () {
     trackingMode = trackingMode === "hands" ? "holistic" : "hands";
 
@@ -80,7 +80,7 @@ window.toggleMode = async function () {
         await handTracker.setOptions({ numHands: 2 });
     }
 
-    // wipe buffers so 63-point arrays never mix with 225-point arrays
+    // clear the buffers because hands-only and holistic data have different shapes
     frameBuffer = [];
     capturedFrames = [];
     isCapturing = false;
@@ -153,7 +153,7 @@ function downloadAsJSON(label, frames) {
 }
 
 
-// --- MAIN DETECTION LOOP ---
+// main loop — runs every frame to detect hands/pose and record data
 async function runDetectionLoop() {
     if (!isRunning) return;
     if (videoEl.videoWidth === 0) { window.requestAnimationFrame(runDetectionLoop); return; }
@@ -177,13 +177,11 @@ async function runDetectionLoop() {
         let frameData = [];
 
 
-        // ==========================================
-        // MODE: HOLISTIC (Body + 2 Hands = 225 numbers)
-        // ==========================================
+        // holistic mode: body + both hands = 225 data points per frame
         if (trackingMode === "holistic") {
             const poseResults = poseTracker.detectForVideo(videoEl, now);
 
-            // 1. EXTRACT BODY (99 values = 33 joints * xyz)
+            // extract body pose (33 joints × 3 coords = 99 values)
             if (poseResults.landmarks && poseResults.landmarks.length > 0) {
                 const pose = poseResults.landmarks[0];
                 for (let i = 0; i < pose.length; i++) frameData.push(pose[i].x, pose[i].y, pose[i].z);
@@ -201,12 +199,12 @@ async function runDetectionLoop() {
             }
 
 
-            // 2. SET UP BUCKETS FOR LEFT/RIGHT
+            // prepare empty arrays for each hand
             let leftHandData = new Array(63).fill(0);
             let rightHandData = new Array(63).fill(0);
 
 
-            // 3. SORT BY HANDEDNESS
+            // figure out which hand is which and fill in the data
             if (handResults.landmarks) {
                 for (let i = 0; i < handResults.landmarks.length; i++) {
                     const hand = handResults.landmarks[i];
@@ -222,15 +220,13 @@ async function runDetectionLoop() {
             }
 
 
-            // 4. COMBINE: pose + left + right = 225 total
+            // combine everything into one flat array: pose + left hand + right hand
             frameData.push(...leftHandData);
             frameData.push(...rightHandData);
             frameBuffer.push(frameData);
 
 
-            // ==========================================
-            // MODE: HANDS ONLY (1 Hand = 63 numbers)
-            // ==========================================
+            // hands-only mode: just one hand = 63 data points per frame
         } else if (trackingMode === "hands") {
             if (handResults.landmarks && handResults.landmarks.length > 0) {
                 const hand = handResults.landmarks[0];
@@ -242,7 +238,7 @@ async function runDetectionLoop() {
         }
 
 
-        // --- RECORDING BUFFER LOGIC ---
+        // keep the buffer at 30 frames max
         if (frameBuffer.length > SEQUENCE_LENGTH) {
             frameBuffer.shift();
         }
@@ -259,7 +255,7 @@ async function runDetectionLoop() {
         }
 
 
-        // --- DRAW HAND SKELETON ---
+        // draw the hand skeleton overlay
         if (handResults.landmarks) {
             for (const hand of handResults.landmarks) {
                 for (const bone of HAND_BONES) {
