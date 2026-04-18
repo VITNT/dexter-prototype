@@ -1,7 +1,7 @@
-// dictionary and flashcard page
+// learn.js
 
 let currentLang = 'asl';
-// hardcoded A-Z for ASL since the labels file only covers dynamic gestures
+// we use the full A-Z alphabet for the ASL dictionary since the labels file only has motion gestures
 let aslVocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 let cslVocab = [];
 
@@ -10,13 +10,13 @@ async function loadVocabs() {
         const cslRes = await fetch('csl_labels.json');
         cslVocab = await cslRes.json();
         
-        // check if the URL says which language to show
+        // figure out which language they want based on the url
         const urlParams = new URLSearchParams(window.location.search);
         const requestedLang = urlParams.get('lang');
         if (requestedLang === 'csl') {
             switchLanguage('csl');
         } else {
-            switchLanguage('asl');
+            switchLanguage('asl'); // fall back to ASL if nothing is specified
         }
     } catch (err) {
         console.error("Failed to load vocabularies:", err);
@@ -26,15 +26,15 @@ async function loadVocabs() {
 window.switchLanguage = function(lang) {
     currentLang = lang;
     
-    // highlight the right tab
+    // highlight the active language tab
     document.getElementById('tab-asl').classList.toggle('active', lang === 'asl');
     document.getElementById('tab-csl').classList.toggle('active', lang === 'csl');
     
-    // update the page heading
+    // swap out the dictionary title
     const title = document.getElementById('dictTitle');
     title.innerText = lang === 'asl' ? 'ASL Dictionary' : 'CSL Dictionary';
     
-    // update the URL so the language persists on refresh
+    // secretly update the url so sharing the link works, without reloading the page
     const newUrl = new URL(window.location);
     newUrl.searchParams.set('lang', lang);
     window.history.pushState({}, '', newUrl);
@@ -58,7 +58,7 @@ function renderDictionary() {
     
     const vocab = currentLang === 'asl' ? aslVocab : cslVocab;
     
-    // show the CSL reference chart above the grid when in CSL mode
+    // the CSL dictionary has a helpful reference chart we show at the top
     if (currentLang === 'csl') {
         const chartCard = document.createElement('div');
         chartCard.className = 'dict-reference-chart';
@@ -67,29 +67,29 @@ function renderDictionary() {
         `;
         grid.parentElement.insertBefore(chartCard, grid);
     } else {
-        // remove the chart when switching away from CSL
+        // get rid of the chart if they switch back to ASL
         const existing = document.querySelector('.dict-reference-chart');
         if (existing) existing.remove();
     }
     
-    // extra cleanup just in case
+    // clean up the chart just to be safe
     if (currentLang === 'asl') {
         const existing = document.querySelector('.dict-reference-chart');
         if (existing) existing.remove();
     }
     
-    // J and Z involve motion, so GIFs show them better than static images
+    // J and Z require motion, so we try to load GIFs for them
     const dynamicSigns = ['j', 'z'];
     
     vocab.forEach(word => {
-        // skip filler labels that aren't actual signs
+        // filter out the background noise labels the model uses
         const cleanWord = word.trim().toLowerCase();
         if (['idle', 'none', '', 'still'].includes(cleanWord)) return;
         
         const card = document.createElement('div');
         card.className = 'dict-card';
         
-        // for J and Z try GIF first since they're animated, otherwise prefer JPG
+        // motion signs get gifs first, static signs get jpgs first
         const isDynamic = dynamicSigns.includes(cleanWord);
         const extensions = isDynamic ? ['gif', 'jpg', 'png'] : ['jpg', 'png', 'gif'];
         const basePath = `images/${currentLang}/${cleanWord}`;
@@ -97,9 +97,9 @@ function renderDictionary() {
         card.addEventListener('click', () => {
             if (document.getElementById('dictGrid').classList.contains('flashcard-active')) {
                 const wasFlipped = card.classList.contains('flipped');
-                // close any other open card first
+                // make sure only one card is flipped at a time
                 document.querySelectorAll('.dict-card.flipped').forEach(c => c.classList.remove('flipped'));
-                // then flip this one open
+                // flip the one they clicked
                 if (!wasFlipped) {
                     card.classList.add('flipped');
                 }
@@ -113,7 +113,7 @@ function renderDictionary() {
                 </div>
                 <div class="dict-card-back">
                     <div class="dict-img-placeholder">
-                        <img alt="${word} sign" loading="lazy">
+                        <img alt="${word} sign">
                         <span>Add photo for '${word}'</span>
                     </div>
                     <div class="dict-label">${word}</div>
@@ -121,13 +121,13 @@ function renderDictionary() {
             </div>
         `;
         
-        // try each file extension until we find one that exists
+        // we don't know the exact file type, so we just guess until one loads
         const img = card.querySelector('img');
         let extIndex = 0;
         
         function tryNextExtension() {
             if (extIndex >= extensions.length) {
-                // no image found, just show the placeholder text
+                // we've tried everything, just show the placeholder
                 img.removeAttribute('src');
                 return;
             }
@@ -136,11 +136,11 @@ function renderDictionary() {
         }
         
         img.onerror = tryNextExtension;
-        // start looking for an image file
-        tryNextExtension();
+        tryNextExtension(); // kick off the loading process
         
         grid.appendChild(card);
     });
 }
 
+// start everything up once the page is ready
 document.addEventListener('DOMContentLoaded', loadVocabs);
