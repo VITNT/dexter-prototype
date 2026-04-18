@@ -291,6 +291,17 @@ window.startCam = async function () {
 
         webcamVideo.srcObject = cameraStream;
         await webcamVideo.play();
+
+        // only mirror the video if we're using the front-facing "selfie" camera
+        const videoContainer = webcamVideo.closest('.video-container');
+        if (videoContainer) {
+            if (activeCameraFacing === 'user') {
+                videoContainer.classList.add('mirror-mode');
+            } else {
+                videoContainer.classList.remove('mirror-mode');
+            }
+        }
+
         isDetecting = true;
         processVideoFrames();
 
