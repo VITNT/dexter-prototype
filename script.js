@@ -722,9 +722,12 @@ function refineGeometricEdges(currentGuess, hand) {
 
 
     if (['Y', 'I'].includes(corrected)) {
-        const width = calculateDistance(hand[5], hand[17]);
-        const thumbExtension = calculateDistance(hand[4], hand[5]);
-        corrected = thumbExtension > width * 0.8 ? 'Y' : 'I';
+        const leftHanded = hand[5].x > hand[17].x;
+        // Check how far the thumb is extended horizontally "outward"
+        const thumbSideOffset = leftHanded ? (hand[4].x - hand[5].x) : (hand[5].x - hand[4].x);
+        
+        // Y requires the thumb to be fully extended to the side (outside the hand)
+        corrected = thumbSideOffset > 0.045 ? 'Y' : 'I';
     }
 
 
