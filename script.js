@@ -228,9 +228,14 @@ window.addEventListener('click', function (event) {
 
     // Header "Learn" dropdown toggle for mobile
     const navDropdown = event.target.closest('.dex-nav-dropdown');
-    if (navDropdown) {
+    const isClickInsideDropdown = event.target.closest('.dex-nav-dropdown-content');
+
+    if (navDropdown && !isClickInsideDropdown) {
+        // Toggle the dropdown if clicking the 'Learn' item itself
+        event.preventDefault();
         navDropdown.classList.toggle('show');
-    } else {
+    } else if (!isClickInsideDropdown) {
+        // Close all dropdowns if clicking outside
         document.querySelectorAll('.dex-nav-dropdown.show').forEach(d => d.classList.remove('show'));
     }
 });
