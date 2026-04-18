@@ -78,9 +78,25 @@ function renderDictionary() {
         if (existing) existing.remove();
     }
     
-    // J and Z require motion, so we try to load GIFs for them
+// J and Z require motion, so we try to load GIFs for them
     const dynamicSigns = ['j', 'z'];
     
+    // Create an observer to only load images when they enter the viewport
+    const cardObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const card = entry.target;
+                const cleanWord = card.dataset.word;
+                const isDynamic = dynamicSigns.includes(cleanWord);
+                const extensions = isDynamic ? ['gif', 'jpg', 'png'] : ['jpg', 'png', 'gif'];
+                const basePath = `images/${currentLang}/${cleanWord}`;
+                
+                loadBestImage(card, basePath, extensions);
+                cardObserver.unobserve(card);
+            }
+        });
+    }, { rootMargin: '200px' }); // Load images a bit before they come into view
+
     vocab.forEach(word => {
         // filter out the background noise labels the model uses
         const cleanWord = word.trim().toLowerCase();
@@ -88,13 +104,12 @@ function renderDictionary() {
         
         const card = document.createElement('div');
         card.className = 'dict-card';
+        card.dataset.word = cleanWord;
         
-        // motion signs get gifs first, static signs get jpgs first
-        const isDynamic = dynamicSigns.includes(cleanWord);
-        const extensions = isDynamic ? ['gif', 'jpg', 'png'] : ['jpg', 'png', 'gif'];
-        const basePath = `images/${currentLang}/${cleanWord}`;
-        
-        card.addEventListener('click', () => {
+        card.addEventListener('click', (e) => {
+            // If we clicked a link inside the dropdown, don't flip the card
+            if (e.target.closest('.dex-nav-dropdown-item')) return;
+            
             if (document.getElementById('dictGrid').classList.contains('flashcard-active')) {
                 const wasFlipped = card.classList.contains('flipped');
                 // make sure only one card is flipped at a time
@@ -112,7 +127,7 @@ function renderDictionary() {
                     <span class="flashcard-text">${word}</span>
                 </div>
                 <div class="dict-card-back">
-                    <div class="dict-img-placeholder">
+                    <div class="dict-img-placeholder loading">
                         <img alt="${word} sign">
                         <span>Add photo for '${word}'</span>
                     </div>
@@ -121,25 +136,43 @@ function renderDictionary() {
             </div>
         `;
         
-        // we don't know the exact file type, so we just guess until one loads
-        const img = card.querySelector('img');
-        let extIndex = 0;
-        
-        function tryNextExtension() {
-            if (extIndex >= extensions.length) {
-                // we've tried everything, just show the placeholder
-                img.removeAttribute('src');
-                return;
-            }
-            img.src = `${basePath}.${extensions[extIndex]}`;
-            extIndex++;
-        }
-        
-        img.onerror = tryNextExtension;
-        tryNextExtension(); // kick off the loading process
-        
         grid.appendChild(card);
+        cardObserver.observe(card);
     });
+}
+
+/**
+ * Tries to find the best image format in parallel and loads it
+ */
+async function loadBestImage(card, basePath, extensions) {
+    const img = card.querySelector('img');
+    const placeholder = card.querySelector('.dict-img-placeholder');
+    
+    // Check for existence of each extension in parallel to save time
+    // We use HEAD requests to avoid downloading the full file until we pick one
+    const checks = extensions.map(async (ext) => {
+        try {
+            const url = `${basePath}.${ext}`;
+            const response = await fetch(url, { method: 'HEAD' });
+            return response.ok ? url : null;
+        } catch (e) {
+            return null;
+        }
+    });
+
+    const results = await Promise.all(checks);
+    const validUrl = results.find(url => url !== null);
+
+    if (validUrl) {
+        img.src = validUrl;
+        img.onload = () => {
+            img.classList.add('loaded');
+            placeholder.classList.remove('loading');
+        };
+    } else {
+        // No image found, stop loading state
+        placeholder.classList.remove('loading');
+    }
 }
 
 // start everything up once the page is ready
@@ -148,9 +181,15 @@ document.addEventListener('DOMContentLoaded', loadVocabs);
 // Header dropdown toggle for mobile
 window.addEventListener('click', function (event) {
     const navDropdown = event.target.closest('.dex-nav-dropdown');
-    if (navDropdown) {
+    const isClickInsideDropdown = event.target.closest('.dex-nav-dropdown-content');
+
+    if (navDropdown && !isClickInsideDropdown) {
+        // Toggle the dropdown if clicking the 'Learn' item itself
+        event.preventDefault();
         navDropdown.classList.toggle('show');
-    } else {
+    } else if (!isClickInsideDropdown) {
+        // Close all dropdowns if clicking outside
         document.querySelectorAll('.dex-nav-dropdown.show').forEach(d => d.classList.remove('show'));
     }
+    // If clicking a link inside the dropdown, we let the browser handle navigation normally
 });

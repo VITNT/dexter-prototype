@@ -308,6 +308,10 @@ canvas {
     border: 1px solid rgba(218, 220, 224, 0.5);
     padding: 6px;
     z-index: 1001;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
 }
 
 /* Invisible bridge to prevent hover loss when moving mouse to dropdown */
@@ -322,11 +326,17 @@ canvas {
 
 .dex-nav-dropdown.show .dex-nav-dropdown-content {
     display: block;
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
 }
 
 @media (hover: hover) {
     .dex-nav-dropdown:hover .dex-nav-dropdown-content {
         display: block;
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
     }
 }
 
@@ -580,6 +590,24 @@ canvas {
     box-sizing: border-box;
     display: none;
     /* Hide until src is set */
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+}
+
+.dict-img-placeholder.loading {
+    background: linear-gradient(110deg, #f1f3f4 8%, #e8eaed 18%, #f1f3f4 33%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s linear infinite;
+}
+
+@keyframes skeleton-shimmer {
+    to {
+        background-position-x: -200%;
+    }
+}
+
+.dict-img-placeholder img.loaded {
+    opacity: 1;
 }
 
 .dict-img-placeholder img[src] {
@@ -932,6 +960,12 @@ body.dark-mode .dropdown-item.active {
     .dex-nav-item {
         font-size: 13px;
         padding: 6px 10px;
+    }
+
+    .dex-nav-dropdown-content {
+        left: auto;
+        right: 0;
+        min-width: 160px;
     }
 
     .dex-logo {
