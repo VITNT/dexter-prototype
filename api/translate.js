@@ -13,8 +13,6 @@ module.exports = async function handler(req, res) {
         const API_KEY = process.env.GEMINI_API_KEY;
 
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
-
-        // keep the prompt strict, otherwise the AI tends to go off on tangents
         const prompt = `You are an ASL gloss-to-English translator.
 
 ASL gloss is a written representation of American Sign Language where each word is an English label for a specific sign. The words are NOT foreign language words — they are literal English names for hand signs. Do NOT try to interpret or translate the individual words as if they are from another language. Just rearrange them into a natural English sentence.

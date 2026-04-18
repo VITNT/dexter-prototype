@@ -279,7 +279,14 @@ canvas {
     white-space: nowrap;
 }
 
-.dex-nav-item:hover,
+@media (hover: hover) {
+    .dex-nav-item:hover,
+    .dex-nav-item.active {
+        color: #1a73e8;
+        background-color: rgba(26, 115, 232, 0.08);
+    }
+}
+
 .dex-nav-item.active {
     color: #1a73e8;
     background-color: rgba(26, 115, 232, 0.08);
@@ -313,8 +320,14 @@ canvas {
     height: 10px;
 }
 
-.dex-nav-dropdown:hover .dex-nav-dropdown-content {
+.dex-nav-dropdown.show .dex-nav-dropdown-content {
     display: block;
+}
+
+@media (hover: hover) {
+    .dex-nav-dropdown:hover .dex-nav-dropdown-content {
+        display: block;
+    }
 }
 
 .dex-nav-dropdown-item {
@@ -328,9 +341,11 @@ canvas {
     transition: background 0.15s;
 }
 
-.dex-nav-dropdown-item:hover {
-    background-color: #f1f3f4;
-    color: #1a73e8;
+@media (hover: hover) {
+    .dex-nav-dropdown-item:hover {
+        background-color: #f1f3f4;
+        color: #1a73e8;
+    }
 }
 
 /* Dictionary Styles */
@@ -424,7 +439,7 @@ canvas {
 }
 
 @media (hover: hover) {
-    .dictionary-grid.flashcard-active .dict-card:hover .dict-card-inner {
+    .dictionary-grid.flashcard-active .dict-card:not(.flipped):hover .dict-card-inner {
         transform: rotateY(180deg);
     }
 }
@@ -454,9 +469,11 @@ canvas {
     /* Hide front face */
 }
 
-.dictionary-grid:not(.flashcard-active) .dict-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+@media (hover: hover) {
+    .dictionary-grid:not(.flashcard-active) .dict-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
 }
 
 .dict-card-front {

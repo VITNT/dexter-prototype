@@ -144,3 +144,13 @@ function renderDictionary() {
 
 // start everything up once the page is ready
 document.addEventListener('DOMContentLoaded', loadVocabs);
+
+// Header dropdown toggle for mobile
+window.addEventListener('click', function (event) {
+    const navDropdown = event.target.closest('.dex-nav-dropdown');
+    if (navDropdown) {
+        navDropdown.classList.toggle('show');
+    } else {
+        document.querySelectorAll('.dex-nav-dropdown.show').forEach(d => d.classList.remove('show'));
+    }
+});
