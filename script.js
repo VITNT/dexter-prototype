@@ -218,11 +218,20 @@ window.selectMode = async function (modeId, modeLabel, element) {
 
 // clicking anywhere else closes the dropdown
 window.addEventListener('click', function (event) {
+    // Close the mode picker dropdown if clicking outside
     if (!event.target.closest('.custom-dropdown')) {
         let menu = document.getElementById("modeMenu");
         if (menu && menu.classList.contains('show')) {
             menu.classList.remove('show');
         }
+    }
+
+    // Header "Learn" dropdown toggle for mobile
+    const navDropdown = event.target.closest('.dex-nav-dropdown');
+    if (navDropdown) {
+        navDropdown.classList.toggle('show');
+    } else {
+        document.querySelectorAll('.dex-nav-dropdown.show').forEach(d => d.classList.remove('show'));
     }
 });
 
@@ -736,12 +745,20 @@ function refineGeometricEdges(currentGuess, hand) {
             } else {
                 const fingerGap = calculateDistance(hand[8], hand[12]);
                 const baseGap = calculateDistance(hand[5], hand[9]);
+
                 if (fingerGap < baseGap * 1.4) {
                     corrected = 'U';
-                } else if (hand[4].y < hand[9].y + 0.02) {
-                    corrected = 'K';
                 } else {
-                    corrected = 'V';
+                    const leftHanded = hand[5].x > hand[17].x;
+                    let tX = hand[4].x, iX = hand[5].x, mX = hand[9].x;
+                    if (leftHanded) { tX = -tX; iX = -iX; mX = -mX; }
+
+                    // K: Thumb tip must be elevated AND horizontally between index and middle fingers
+                    if (hand[4].y < hand[9].y - 0.01 && tX > iX && tX < mX) {
+                        corrected = 'K';
+                    } else {
+                        corrected = 'V';
+                    }
                 }
             }
         }
@@ -777,29 +794,46 @@ function refineGeometricEdges(currentGuess, hand) {
     // the hardest group — these all look like a closed fist with slight thumb differences
     if (['A', 'E', 'S', 'T', 'M', 'N'].includes(corrected)) {
         const leftHanded = hand[5].x > hand[17].x;
-        let tX = hand[4].x, iX = hand[5].x, rX = hand[13].x;
+
+        // Use knuckle boundaries for horizontal columns and depth
+        let tX = hand[4].x, tY = hand[4].y, tZ = hand[4].z;
+        let iX = hand[5].x, mX = hand[9].x, rX = hand[13].x;
+        let iZ = hand[5].z, mZ = hand[9].z, rZ = hand[13].z;
+        let mPIP_Y = hand[10].y;
 
         if (leftHanded) {
-            tX = -tX;
-            iX = -iX;
-            rX = -rX;
+            tX = -tX; iX = -iX; mX = -mX; rX = -rX;
         }
 
-        const width = rX - iX;
-        const thumbPos = tX - iX;
+        const imBoundary = (iX + mX) / 2;
+        const mrBoundary = (mX + rX) / 2;
+        const thumbSideOffset = leftHanded ? (hand[4].x - hand[5].x) : (hand[5].x - hand[4].x);
 
-        if (hand[4].y > hand[5].y + 0.05) {
+        // Average depth of the knuckles to determine what's "in front"
+        const knuckleZ = (iZ + mZ + rZ) / 3;
+
+        // 1. Identify 'E' (Thumb tip tucked low, below all curled fingers)
+        const maxFingerY = Math.max(hand[8].y, hand[12].y, hand[16].y, hand[20].y);
+        if (tY > maxFingerY - 0.01) {
             corrected = 'E';
-        } else if (hand[4].y < hand[6].y + 0.01 && thumbPos > 0) {
-            corrected = 'S';
-        } else if (thumbPos < 0 && hand[4].y < hand[5].y + 0.03) {
+        }
+        // 2. Identify 'A' (Thumb on the side)
+        else if (thumbSideOffset > 0.02) {
             corrected = 'A';
-        } else if (thumbPos > width * 0.65) {
-            corrected = 'M';
-        } else if (thumbPos > width * 0.25) {
-            corrected = 'N';
+        }
+        // 3. Identify 'S' (On Top / In Front of knuckles)
+        // S is identified when the thumb tip is physically closer to the camera (smaller Z)
+        // than the finger knuckles, and it's not tucked into a side column.
+        else if (tZ < knuckleZ - 0.015 && tY < mPIP_Y + 0.05 && tX > iX) {
+            corrected = 'S';
+        }
+        // 4. Distinguish T, N, M (Tucked behind or between fingers)
+        else if (tX < imBoundary) {
+            corrected = 'T'; // Thumb between Index and Middle
+        } else if (tX < mrBoundary) {
+            corrected = 'N'; // Side of Middle (Between Middle and Ring)
         } else {
-            corrected = 'T';
+            corrected = 'M'; // Between Ring and Pinky
         }
     }
 
