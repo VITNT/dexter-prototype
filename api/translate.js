@@ -14,7 +14,7 @@ module.exports = async function handler(req, res) {
 
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
 
-        // Keep the prompt tight — Gemma tends to ramble if you give it room
+        // keep the prompt strict — Gemma likes to ramble if you let it
         const prompt = `You are an ASL gloss-to-English translator.
 
 ASL gloss is a written representation of American Sign Language where each word is an English label for a specific sign. The words are NOT foreign language words — they are literal English names for hand signs. Do NOT try to interpret or translate the individual words as if they are from another language. Just rearrange them into a natural English sentence.
@@ -58,22 +58,22 @@ English:`;
             });
         }
 
-        // Skip "thought" parts — thinking models sometimes sneak those in
+        // thinking models sometimes include their reasoning, so we filter that out
         const parts = payload?.candidates?.[0]?.content?.parts || [];
         const finalPart = parts.filter(p => !p.thought).pop();
         let rawText = finalPart?.text || "";
 
-        // Strip markdown artifacts, bullets, numbering, wrapping quotes
+        // clean up any markdown junk, bullets, or stray quotes the model added
         let sentence = rawText
             .replace(/^[*\-•\d.\)\s"]+/gm, "")
             .replace(/^["']|["']$/g, "")
             .trim();
 
-        // If multi-line, just grab the last real line (the actual answer)
+        // if the model gave us multiple lines, the actual answer is usually the last one
         const lines = sentence.split("\n").filter(l => l.trim() !== "");
         sentence = (lines.pop() || "").trim();
 
-        // Make sure we always return a proper sentence
+        // capitalize and add a period so it looks like a proper sentence
         if (sentence) {
             sentence =
                 sentence.charAt(0).toUpperCase() +
