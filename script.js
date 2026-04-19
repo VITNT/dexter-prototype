@@ -137,7 +137,12 @@ async function initializeMediaPipe() {
     }
 }
 
-initializeMediaPipe();
+// track initialization state so we don't start the camera too early
+let isModelsReady = false;
+let modelInitPromise = initializeMediaPipe().then(() => {
+    isModelsReady = true;
+    console.log("System ready for detection.");
+});
 
 function buildSign(name, noCurls, halfCurls, fullCurls) {
     const sign = new fp.GestureDescription(name);
@@ -280,6 +285,15 @@ window.changeMode = async function () {
 
 window.startCam = async function () {
     try {
+        if (!isModelsReady) {
+            const originalText = cameraToggleBtn.textContent;
+            cameraToggleBtn.textContent = "Loading AI Models...";
+            cameraToggleBtn.disabled = true;
+            await modelInitPromise;
+            cameraToggleBtn.disabled = false;
+            cameraToggleBtn.textContent = originalText;
+        }
+
         if (cameraStream) window.stopCam();
 
         // phones get a lighter 640x480 feed, desktops get full HD
@@ -511,10 +525,15 @@ async function processVideoFrames() {
         previousVideoTime = webcamVideo.currentTime;
         resizeCanvas();
 
+        if (!handTracker) {
+            window.requestAnimationFrame(processVideoFrames);
+            return;
+        }
+
         const detectedHands = handTracker.detectForVideo(webcamVideo, currentTimeMs);
         let detectedPose = null;
 
-        if (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") {
+        if ((currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") && poseTracker) {
             detectedPose = poseTracker.detectForVideo(webcamVideo, currentTimeMs);
         }
 
