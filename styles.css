@@ -281,6 +281,11 @@ canvas {
     display: flex;
     align-items: center;
     white-space: nowrap;
+    /* Reset button styles */
+    background: none;
+    border: none;
+    font-family: inherit;
+    -webkit-tap-highlight-color: transparent;
 }
 
 @media (hover: hover) {
