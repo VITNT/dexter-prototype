@@ -25,9 +25,9 @@ let sentenceBuilderDisplay = document.getElementById('builtSentence');
 let handTracker;
 let poseTracker;
 
-// we load two separate tensorflow models — one for ASL, one for CSL
-let aslModel, cslModel;
-let aslVocab = [], cslVocab = [];
+// we load the base ASL model plus an optional KSL fallback and the KSL sub-model registry
+let aslModel, kslModel;
+let aslVocab = [], kslVocab = [];
 
 // whichever model is selected right now
 let activeAIModel;
@@ -125,9 +125,9 @@ async function initializeMediaPipe() {
         aslVocab = await aslResponse.json();
         aslModel = await tf.loadLayersModel('./asl-model.json');
 
-        const cslResponse = await fetch('./csl_labels.json');
-        cslVocab = await cslResponse.json();
-        cslModel = await tf.loadLayersModel('./csl_model.json');
+        const kslResponse = await fetch('./ksl_labels.json');
+        kslVocab = await kslResponse.json();
+        kslModel = await tf.loadLayersModel('./ksl_model.json');
 
         activeAIModel = aslModel;
         activeVocabulary = aslVocab;
@@ -196,11 +196,11 @@ window.selectMode = async function (modeId, modeLabel, element) {
     const outputLangUI = document.getElementById('outputLangLabel');
 
     if (currentTrackingMode === "csl_word") {
-        guessLabelUI.innerText = `Mode: ${modeLabel}`;
-        rawOutputUI.innerText = `...`;
-        if (outputLangUI) outputLangUI.innerText = "Khmer";
-        activeAIModel = cslModel;
-        activeVocabulary = cslVocab;
+        guessLabelUI.innerText = "Mode: KSL Words";
+        rawOutputUI.innerText = `[KSL]`;
+        if (outputLangUI) outputLangUI.innerText = "KSL";
+        activeAIModel = kslModel;
+        activeVocabulary = kslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
 
     } else if (currentTrackingMode === "asl_word") {
@@ -257,11 +257,11 @@ window.changeMode = async function () {
     const outputLangUI = document.getElementById('outputLangLabel');
 
     if (currentTrackingMode === "csl_word") {
-        guessLabelDisplay.innerText = "Mode: CSL Words";
-        rawExtractionDisplay.innerText = "[CSL]";
-        if (outputLangUI) outputLangUI.innerText = "Khmer";
-        activeAIModel = cslModel;
-        activeVocabulary = cslVocab;
+        guessLabelDisplay.innerText = "Mode: KSL Words";
+        rawExtractionDisplay.innerText = "[KSL]";
+        if (outputLangUI) outputLangUI.innerText = "KSL";
+        activeAIModel = kslModel;
+        activeVocabulary = kslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
 
     } else if (currentTrackingMode === "asl_word") {

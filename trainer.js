@@ -423,9 +423,9 @@ async function startTraining() {
 
     // --- Dynamic export naming ---
     // {subModelName}_model.json / {subModelName}_model.weights.bin / {subModelName}_labels.json
-    // when a sub-model name was provided; otherwise fall back to the default csl_model naming.
-    const modelExportName = usingSubModel ? `${subModelName}_model` : "csl_model";
-    const labelsExportName = usingSubModel ? `${subModelName}_labels.json` : "csl_labels.json";
+    // when a sub-model name was provided; otherwise fall back to the default ksl_model naming.
+    const modelExportName = usingSubModel ? `${subModelName}_model` : "ksl_model";
+    const labelsExportName = usingSubModel ? `${subModelName}_labels.json` : "ksl_labels.json";
 
     // 1. Save model files (TFJS writes ${modelExportName}.json + ${modelExportName}.weights.bin)
     await model.save(`downloads://${modelExportName}`);
