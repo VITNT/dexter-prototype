@@ -3,18 +3,18 @@
 let currentLang = 'asl';
 // we use the full A-Z alphabet for the ASL dictionary since the labels file only has motion gestures
 let aslVocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-let cslVocab = [];
+let kslVocab = [];
 
 async function loadVocabs() {
     try {
-        const cslRes = await fetch('csl_labels.json');
-        cslVocab = await cslRes.json();
+        const kslRes = await fetch('ksl_labels.json');
+        kslVocab = await kslRes.json();
         
         // figure out which language they want based on the url
         const urlParams = new URLSearchParams(window.location.search);
         const requestedLang = urlParams.get('lang');
-        if (requestedLang === 'csl') {
-            switchLanguage('csl');
+        if (requestedLang === 'ksl' || requestedLang === 'csl') {
+            switchLanguage('ksl');
         } else {
             switchLanguage('asl'); // fall back to ASL if nothing is specified
         }
@@ -28,11 +28,11 @@ window.switchLanguage = function(lang) {
     
     // highlight the active language tab
     document.getElementById('tab-asl').classList.toggle('active', lang === 'asl');
-    document.getElementById('tab-csl').classList.toggle('active', lang === 'csl');
+    document.getElementById('tab-csl').classList.toggle('active', lang === 'ksl');
     
     // swap out the dictionary title
     const title = document.getElementById('dictTitle');
-    title.innerText = lang === 'asl' ? 'ASL Dictionary' : 'CSL Dictionary';
+    title.innerText = lang === 'asl' ? 'ASL Dictionary' : 'KSL Dictionary';
     
     // secretly update the url so sharing the link works, without reloading the page
     const newUrl = new URL(window.location);
@@ -56,10 +56,10 @@ function renderDictionary() {
     const grid = document.getElementById('dictGrid');
     grid.innerHTML = '';
     
-    const vocab = currentLang === 'asl' ? aslVocab : cslVocab;
+    const vocab = currentLang === 'asl' ? aslVocab : kslVocab;
     
-    // the CSL dictionary has a helpful reference chart we show at the top
-    if (currentLang === 'csl') {
+    // the KSL dictionary has a helpful reference chart we show at the top
+    if (currentLang === 'ksl') {
         const chartCard = document.createElement('div');
         chartCard.className = 'dict-reference-chart';
         chartCard.innerHTML = `
@@ -89,7 +89,7 @@ function renderDictionary() {
                 const cleanWord = card.dataset.word;
                 const isDynamic = dynamicSigns.includes(cleanWord);
                 const extensions = isDynamic ? ['gif', 'jpg', 'png'] : ['jpg', 'png', 'gif'];
-                const basePath = `images/${currentLang}/${cleanWord}`;
+                const basePath = `images/${currentLang === 'ksl' ? 'csl' : currentLang}/${cleanWord}`;
                 
                 loadBestImage(card, basePath, extensions);
                 cardObserver.unobserve(card);
