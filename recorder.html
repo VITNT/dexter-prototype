@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
+  <head>
     <meta charset="UTF-8" />
     <title>ASL Recording Studio</title>
     <link rel="stylesheet" href="styles.css">
@@ -9,236 +8,117 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&display=swap" rel="stylesheet">
     <style>
-        body {
-            background-color: black;
-            color: white;
-            text-align: center;
-        }
+      body { background-color: #0d0d0d; color: white; text-align: center; font-family: 'Manrope', sans-serif; }
+      h1 { margin: 16px 0 8px; font-size: 1.6rem; }
 
-        button {
-            margin-top: 10px;
-            padding: 10px 16px;
-            font-size: 16px;
-            cursor: pointer;
-        }
+      button {
+        margin-top: 10px; padding: 10px 18px; font-size: 15px;
+        cursor: pointer; border: none; border-radius: 6px;
+        font-family: 'Manrope', sans-serif; font-weight: 600;
+        transition: opacity 0.15s;
+      }
+      button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-        .capture-panel {
-            margin-top: 20px;
-            padding: 15px;
-            border: 2px dashed lime;
-            display: inline-block;
-            border-radius: 8px;
-        }
+      .collector-ui {
+        margin: 16px auto; padding: 18px 24px;
+        border: 2px dashed #39ff14;
+        display: inline-block; border-radius: 10px;
+        background: #111; min-width: 320px;
+      }
+      .collector-ui h3 { margin: 0 0 12px; font-size: 1.1rem; color: #39ff14; }
 
-        input {
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                <title>ASL Recording Studio</title>
-                <link rel="preconnect" href="https://fonts.googleapis.com">
-                <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-                <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&display=swap" rel="stylesheet">
-                <link rel="stylesheet" href="styles.css">
-                <style>
-                    body {
-                        background: #f8f9fa;
-                        font-family: 'Manrope', sans-serif;
-                    }
+      input[type="text"], input[type="number"] {
+        padding: 8px 12px; font-size: 15px;
+        background: #1e1e1e; color: white;
+        border: 1px solid #444; border-radius: 5px;
+        font-family: 'Manrope', sans-serif;
+      }
+      input[type="text"] { width: 160px; }
+      input[type="number"] { width: 54px; }
 
-                    .record-shell {
-                        max-width: 1120px;
-                        margin: 0 auto;
-                        width: 100%;
-                        padding: 24px 16px 40px;
-                        box-sizing: border-box;
-                    }
+      .btn-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
 
-                    .record-panel {
-                        background: #fff;
-                        border: 1px solid #dadce0;
-                        border-radius: 12px;
-                        box-shadow: 0 1px 3px 0 rgba(60, 64, 67, 0.1), 0 4px 8px 3px rgba(60, 64, 67, 0.05);
-                        padding: 20px;
-                    }
+      #recordBtn  { background: #e91e63; color: white; }
+      #recordBtn:hover:not(:disabled)  { background: #c2185b; }
 
-                    .record-grid {
-                        display: grid;
-                        gap: 16px;
-                    }
+      #burstBtn   { background: #9c27b0; color: white; }
+      #burstBtn:hover:not(:disabled)   { background: #7b1fa2; }
 
-                    .record-video-wrap {
-                        position: relative;
-                        width: 100%;
-                        max-width: 760px;
-                        aspect-ratio: 4 / 3;
-                        margin: 0 auto;
-                        border-radius: 10px;
-                        overflow: hidden;
-                        background: #000;
-                    }
+      .ctrl-row { display: flex; gap: 8px; justify-content: center; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+      .ctrl-label { font-size: 13px; color: #aaa; }
 
-                    .record-video-wrap video,
-                    .record-video-wrap canvas {
-                        position: absolute;
-                        inset: 0;
-                        width: 100%;
-                        height: 100%;
-                        object-fit: cover;
-                    }
+      #qualityIndicator {
+        margin-top: 10px; font-size: 14px; font-weight: 600;
+        letter-spacing: 0.02em;
+      }
 
-                    .record-video-wrap canvas {
-                        z-index: 10;
-                        pointer-events: none;
-                    }
+      #recordStatus { margin-top: 10px; color: yellow; font-size: 15px; min-height: 22px; }
+    </style>
+  </head>
+  <body>
 
-                    .record-controls,
-                    .record-actions {
-                        display: flex;
-                        flex-wrap: wrap;
-                        gap: 10px;
-                        justify-content: center;
-                        align-items: center;
-                    }
+    <h1>🎬 Recording Studio</h1>
+    
+    <div style="position: relative; width: 100%; max-width: 640px; aspect-ratio: 4/3; margin: 0 auto;">
+      <video id="videoEl" autoplay playsinline muted webkit-playsinline style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover;"></video>
+      <canvas class="canvasEl" style="position: absolute; top:0; left:0; width:100%; height:100%; z-index: 10; pointer-events: none;"></canvas>
+      
+      <div id="countdownOverlay" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 150px; font-weight: bold; color: white; text-shadow: 4px 4px 20px black; z-index: 20;">3</div>
+    </div>
 
-                    .record-card {
-                        border: 1px solid #dadce0;
-                        border-radius: 12px;
-                        padding: 16px;
-                        background: #f8f9fa;
-                    }
+    <!-- Camera Controls -->
+    <div class="btn-row" style="margin-top: 12px;">
+      <button id="camBtn" onclick="window.startCamera()" style="background:#4caf50; color:white;">▶ Start Camera</button>
+      <button id="flipBtn" onclick="window.flipCamera()" style="background:#607d8b; color:white;">⟳ Flip Camera</button>
+      <button id="modeBtn" onclick="window.toggleMode()" style="background-color: #ff9800; color:black;">Mode: Hands Only</button>
+    </div>
 
-                    .record-field {
-                        display: flex;
-                        gap: 10px;
-                        align-items: center;
-                        justify-content: center;
-                        flex-wrap: wrap;
-                    }
+    <!-- Dataset Recorder Panel -->
+    <div class="collector-ui">
+      <h3>📼 Dataset Recorder</h3>
 
-                    .record-field label {
-                        color: #5f6368;
-                        font-size: 14px;
-                        font-weight: 600;
-                    }
+      <div class="ctrl-row">
+        <label class="ctrl-label" for="gestureName">Label:</label>
+        <input type="text" id="gestureName" placeholder="e.g., hello" />
+      </div>
 
-                    .record-field input {
-                        padding: 10px 12px;
-                        border-radius: 8px;
-                        border: 1px solid #dadce0;
-                        font: inherit;
-                        min-width: 150px;
-                    }
+      <div class="ctrl-row" style="margin-top: 8px;">
+        <label class="ctrl-label" for="timerDelay">Delay (s):</label>
+        <input type="number" id="timerDelay" value="3" min="0" max="10" title="Countdown before recording starts" />
 
-                    .record-status {
-                        margin-top: 12px;
-                        color: #5f6368;
-                        min-height: 24px;
-                        text-align: center;
-                    }
+        <label class="ctrl-label" for="burstCount">Burst N:</label>
+        <input type="number" id="burstCount" value="5" min="1" max="20" title="Number of samples in burst mode" />
+      </div>
 
-                    .record-meta {
-                        display: grid;
-                        gap: 10px;
-                        margin-top: 14px;
-                        color: #5f6368;
-                        font-size: 14px;
-                    }
+      <div class="btn-row">
+        <button id="recordBtn" onclick="window.recordGesture()">🔴 Record 1 Sample</button>
+        <button id="burstBtn"  onclick="window.recordBurst()">⚡ Burst Record</button>
+      </div>
 
-                    .record-routing {
-                        padding: 10px 12px;
-                        border-radius: 10px;
-                        border: 1px solid rgba(26, 115, 232, 0.18);
-                        background: rgba(26, 115, 232, 0.05);
-                    }
+      <!-- Live sub-model routing indicator -->
+      <div id="routingIndicator" style="
+          margin-top: 12px;
+          padding: 8px 14px;
+          background: #1a1a1a;
+          border: 1px solid #00bcd4;
+          border-radius: 6px;
+          font-size: 13px;
+          letter-spacing: 0.03em;
+          color: #aaa;
+      ">
+        Routing Bucket:&nbsp;
+        <span id="routingVote" style="color: cyan; font-weight: bold; font-size: 14px;">
+          Determining...
+        </span>
+      </div>
 
-                    @media screen and (max-width: 800px) {
-                        .record-shell {
-                            padding: 12px 8px 24px;
-                        }
+      <!-- Quality indicator (updated live by recorder.js) -->
+      <div id="qualityIndicator">Quality: --</div>
 
-                        .record-panel {
-                            padding: 14px;
-                        }
-                    }
-                </style>
-            </head>
-            <body>
-                <header class="dex-header">
-                    <div class="dex-logo" style="display: flex; align-items: center; gap: 8px;">
-                        <img src="logo.png" alt="Dexter Logo" width="32" height="32" style="border-radius: 6px;">
-                        <span class="dex-blue">Dexter</span>
-                    </div>
-                    <nav class="dex-nav">
-                        <a href="index.html" class="dex-nav-item">Translate</a>
-                        <a href="learn.html" class="dex-nav-item">Learn</a>
-                        <a href="recorder.html" class="dex-nav-item active">Recorder</a>
-                        <a href="trainer.html" class="dex-nav-item">Trainer</a>
-                    </nav>
-                    <button id="darkModeToggle" class="theme-toggle-btn" title="Toggle Dark Mode">
-                        <svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24px" height="24px">
-                            <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"></path>
-                        </svg>
-                    </button>
-                </header>
+      <p id="recordStatus">Ready to record...</p>
+    </div>
 
-                <main class="dex-main">
-                    <div class="record-shell">
-                        <div class="record-panel">
-                            <div class="record-grid">
-                                <div class="record-video-wrap">
-                                    <video id="webcamFeed" autoplay playsinline muted webkit-playsinline></video>
-                                    <canvas class="overlayCanvas"></canvas>
-                                    <div id="countdownOverlay" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center; font-size:150px; font-weight:700; color:white; text-shadow:4px 4px 20px black; z-index:20;">3</div>
-                                </div>
+    <script type="module" src="recorder.js"></script>
 
-                                <div class="record-controls">
-                                    <button id="cameraToggleBtn" onclick="window.startCamera()" class="dex-btn-primary">Start Camera</button>
-                                    <button id="flipCameraBtn" onclick="window.flipCamera()" class="dex-btn-primary">Flip Camera</button>
-                                    <button id="trackingModeBtn" onclick="window.toggleMode()" class="dex-btn-translate">Mode: Hands Only</button>
-                                </div>
-
-                                <div class="record-card">
-                                    <div class="record-field">
-                                        <label for="signLabel">Label:</label>
-                                        <input type="text" id="signLabel" placeholder="e.g., hello" />
-                                    </div>
-
-                                    <div class="record-field" style="margin-top: 12px;">
-                                        <label for="timerDelay">Delay (s):</label>
-                                        <input type="number" id="timerDelay" value="3" min="0" max="10" title="Countdown before recording starts" />
-                                        <label for="burstCount">Burst N:</label>
-                                        <input type="number" id="burstCount" value="5" min="1" max="20" title="Number of samples in burst mode" />
-                                    </div>
-
-                                    <div class="record-actions" style="margin-top: 14px;">
-                                        <button id="recordBtn" onclick="window.recordGesture()" class="dex-btn-primary">Record 1 Sample</button>
-                                        <button id="burstBtn" onclick="window.recordBurst()" class="dex-btn-primary">Burst Record</button>
-                                    </div>
-
-                                    <div class="record-meta">
-                                        <div id="routingIndicator" class="record-routing">
-                                            Routing Bucket: <span id="routingVote" style="color:#1a73e8; font-weight:700;">Determining...</span>
-                                        </div>
-                                        <div id="qualityIndicator">Quality: --</div>
-                                        <p id="captureStatus" class="record-status">Ready to record...</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </main>
-
-                <script type="module" src="recorder.js"></script>
-                <script>
-                    if (localStorage.getItem('darkMode') === 'true') {
-                        document.body.classList.add('dark-mode');
-                    }
-                    document.getElementById('darkModeToggle').addEventListener('click', () => {
-                        document.body.classList.toggle('dark-mode');
-                        localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
-                    });
-                </script>
-            </body>
-            </html>
+  </body>
+</html>
