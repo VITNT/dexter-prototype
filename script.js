@@ -33,6 +33,14 @@ let aslVocab = [], kslVocab = [];
 let activeAIModel;
 let activeVocabulary = [];
 
+// routed word sub-models, keyed by handshape + body zone (for example "fist_face")
+let subModelRegistry = {};
+let activeSubModel = null;
+let activeSubVocabulary = null;
+let wristVelocityBuffer = [];
+let routeHistoryBuffer = [];
+let routingDebug = { handshape: "unknown", zone: "neutral", routeKey: null, matched: false, velocity: 0, dynThreshold: 0.90 };
+
 // we collect 30 frames of hand data before making a prediction
 let motionBuffer = [];
 let accumulatedWord = "";
@@ -47,15 +55,18 @@ let dynamicSignStreak = 0;
 let lastDynamicGuess = "";
 let staticSignStreak = 0;
 let lastStaticGuess = "";
+const VOTE_WINDOW = 5;
+let predictionVotes = [];
 
 // the transparent canvas sitting on top of the video for drawing skeletons
 const overlayCanvasElement = document.getElementsByClassName('overlayCanvas')[0];
 const canvasContext = overlayCanvasElement.getContext('2d');
 
-// mediapipe sometimes loses a hand for a frame or two — we keep the last known
-// positions so the model doesn't freak out from sudden zeros
-let cachedLeftHand = new Array(21 * 3).fill(0);
-let cachedRightHand = new Array(21 * 3).fill(0);
+// mediapipe sometimes loses a hand for a frame or two, so last-seen hands fade out
+// instead of dropping to zero or freezing forever.
+const GHOST_DECAY_FRAMES = 8;
+let cachedLeftHand = { data: new Array(21 * 3).fill(0), age: GHOST_DECAY_FRAMES };
+let cachedRightHand = { data: new Array(21 * 3).fill(0), age: GHOST_DECAY_FRAMES };
 
 // shorthand for fingerpose's finger names
 const { Thumb, Index, Middle, Ring, Pinky } = fp.Finger;
@@ -90,6 +101,28 @@ const alphabetGestures = [
 ];
 const gestureEstimator = new fp.GestureEstimator(alphabetGestures);
 
+// hand-shape classifier used only for routing to hierarchy sub-models
+const routeFist = new fp.GestureDescription('fist');
+[Thumb, Index, Middle, Ring, Pinky].forEach(finger => routeFist.addCurl(finger, FullCurl, 1.0));
+
+const routeOpenPalm = new fp.GestureDescription('open_palm');
+[Thumb, Index, Middle, Ring, Pinky].forEach(finger => routeOpenPalm.addCurl(finger, NoCurl, 1.0));
+
+const routeIndexPoint = new fp.GestureDescription('index_point');
+routeIndexPoint.addCurl(Index, NoCurl, 1.0);
+[Thumb, Middle, Ring, Pinky].forEach(finger => routeIndexPoint.addCurl(finger, FullCurl, 1.0));
+
+const routeCurled = new fp.GestureDescription('curled');
+[Thumb, Index, Middle, Ring, Pinky].forEach(finger => routeCurled.addCurl(finger, HalfCurl, 1.0));
+
+const routeThumbUp = new fp.GestureDescription('thumb_up');
+routeThumbUp.addCurl(Thumb, NoCurl, 1.0);
+[Index, Middle, Ring, Pinky].forEach(finger => routeThumbUp.addCurl(finger, FullCurl, 1.0));
+
+const routeGestureEstimator = new fp.GestureEstimator([
+    routeFist, routeOpenPalm, routeIndexPoint, routeCurled, routeThumbUp
+]);
+
 // which joints to connect when drawing the skeleton overlay
 const HAND_CONNECTIONS = [
     [0, 1], [1, 2], [2, 3], [3, 4],
@@ -107,6 +140,15 @@ const POSE_CONNECTIONS = [
 ];
 
 async function initializeMediaPipe() {
+    try {
+        await tf.setBackend('webgl');
+        tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
+        tf.env().set('WEBGL_PACK', true);
+        tf.enableProdMode();
+    } catch (error) {
+        console.warn("WebGL initialization failed, falling back to the default TensorFlow backend.", error);
+    }
+
     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
 
     handTracker = await HandLandmarker.createFromOptions(vision, {
@@ -125,15 +167,47 @@ async function initializeMediaPipe() {
         aslVocab = await aslResponse.json();
         aslModel = await tf.loadLayersModel('./asl-model.json');
 
-        const kslResponse = await fetch('./ksl_labels.json');
-        kslVocab = await kslResponse.json();
-        kslModel = await tf.loadLayersModel('./ksl_model.json');
-
         activeAIModel = aslModel;
         activeVocabulary = aslVocab;
-        console.log("Models loaded successfully.");
+        console.log("ASL model loaded successfully.");
     } catch (error) {
-        console.error("Failed to load tfjs models. Check the filenames and paths.", error);
+        console.error("Failed to load the ASL model. Check the filenames and paths.", error);
+    }
+
+    try {
+        const kslResponse = await fetch('./ksl_labels.json');
+        if (kslResponse.ok) {
+            kslVocab = await kslResponse.json();
+            kslModel = await tf.loadLayersModel('./ksl_model.json');
+            console.log("Flat KSL model loaded successfully.");
+        } else {
+            console.log("No flat KSL model labels found; CSL Words will use routed sub-models when available.");
+        }
+    } catch (error) {
+        console.log("Flat KSL model not available; continuing with routed sub-models only.");
+    }
+
+    try {
+        const registryResponse = await fetch('./ksl-words/submodel-registry.json');
+        if (registryResponse.ok) {
+            const registryConfig = await registryResponse.json();
+            for (const [routeKey, paths] of Object.entries(registryConfig)) {
+                if (routeKey.startsWith("DISABLED_")) continue;
+
+                try {
+                    const subLabels = await (await fetch(paths.labels)).json();
+                    const subModel = await tf.loadLayersModel(paths.model);
+                    subModelRegistry[routeKey] = { model: subModel, labels: subLabels };
+                    console.log(`Sub-model loaded for route "${routeKey}".`);
+                } catch (subError) {
+                    console.warn(`Sub-model "${routeKey}" failed to load; falling back for that route.`, subError);
+                }
+            }
+        } else {
+            console.log("No submodel-registry.json found; running flat-model-only.");
+        }
+    } catch (error) {
+        console.log("Sub-model registry not available; running flat-model-only.");
     }
 }
 
@@ -190,6 +264,7 @@ window.selectMode = async function (modeId, modeLabel, element) {
     window.clearWord();
     staticSignStreak = 0;
     dynamicSignStreak = 0;
+    clearHandCache();
 
     const guessLabelUI = document.getElementById('guessLabel');
     const rawOutputUI = document.getElementById('liveOutput');
@@ -252,6 +327,7 @@ window.changeMode = async function () {
     currentTrackingMode = selector.value;
     window.clearWord();
     staticSignStreak = 0; dynamicSignStreak = 0;
+    clearHandCache();
 
 
     const outputLangUI = document.getElementById('outputLangLabel');
@@ -433,8 +509,8 @@ const calculateDistance = (p1, p2) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.
 // stitch together pose + both hands into one flat array the model expects
 function buildHolisticFrame(poseData, handData) {
     let rawPose = new Array(33 * 3).fill(0);
-    let leftHand = [...cachedLeftHand];
-    let rightHand = [...cachedRightHand];
+    let leftSeen = false;
+    let rightSeen = false;
 
 
     if (poseData?.landmarks?.length > 0) {
@@ -460,14 +536,22 @@ function buildHolisticFrame(poseData, handData) {
             }
 
             if (side === "Left") {
-                leftHand = flatHand;
-                cachedLeftHand = flatHand;
+                cachedLeftHand = { data: flatHand, age: 0 };
+                leftSeen = true;
             } else {
-                rightHand = flatHand;
-                cachedRightHand = flatHand;
+                cachedRightHand = { data: flatHand, age: 0 };
+                rightSeen = true;
             }
         }
     }
+
+    if (!leftSeen) cachedLeftHand.age = Math.min(cachedLeftHand.age + 1, GHOST_DECAY_FRAMES);
+    if (!rightSeen) cachedRightHand.age = Math.min(cachedRightHand.age + 1, GHOST_DECAY_FRAMES);
+
+    const leftDecay = 1 - cachedLeftHand.age / GHOST_DECAY_FRAMES;
+    const rightDecay = 1 - cachedRightHand.age / GHOST_DECAY_FRAMES;
+    const leftHand = cachedLeftHand.data.map(value => value * leftDecay);
+    const rightHand = cachedRightHand.data.map(value => value * rightDecay);
 
     return [...rawPose, ...leftHand, ...rightHand];
 }
@@ -506,8 +590,139 @@ function centerFrameData(rawFrame) {
 }
 
 function clearHandCache() {
-    cachedLeftHand = new Array(21 * 3).fill(0);
-    cachedRightHand = new Array(21 * 3).fill(0);
+    cachedLeftHand = { data: new Array(21 * 3).fill(0), age: GHOST_DECAY_FRAMES };
+    cachedRightHand = { data: new Array(21 * 3).fill(0), age: GHOST_DECAY_FRAMES };
+    predictionVotes = [];
+    wristVelocityBuffer = [];
+    routeHistoryBuffer = [];
+    activeSubModel = null;
+    activeSubVocabulary = null;
+    routingDebug = { handshape: "unknown", zone: "neutral", routeKey: null, matched: false, velocity: 0, dynThreshold: CONFIDENCE_THRESHOLD };
+}
+
+function classifyHandshape(handLandmarks) {
+    if (!handLandmarks?.length) return "unknown";
+
+    const keypoints3D = handLandmarks.map(point => [
+        point.x * overlayCanvasElement.width,
+        point.y * overlayCanvasElement.height,
+        point.z * overlayCanvasElement.width
+    ]);
+    const estimation = routeGestureEstimator.estimate(keypoints3D, 7.0);
+
+    if (estimation.gestures.length > 0) {
+        return estimation.gestures.reduce((prev, current) => (prev.score > current.score) ? prev : current).name;
+    }
+
+    return "unknown";
+}
+
+function classifyZone(poseData, handLandmarks) {
+    if (!handLandmarks?.length || !poseData?.landmarks?.length) return "neutral";
+
+    const pose = poseData.landmarks[0];
+    if (pose.length < 15) return "neutral";
+
+    const knuckleY = handLandmarks[9].y;
+    const shoulderLineY = (pose[11].y + pose[12].y) / 2;
+    const elbowLineY = (pose[13].y + pose[14].y) / 2;
+
+    if (knuckleY < shoulderLineY) return "face";
+    if (knuckleY < elbowLineY) return "chest";
+    return "low";
+}
+
+function routeToSubModel(handshape, zone) {
+    const routeKey = `${handshape}_${zone}`;
+    const entry = subModelRegistry[routeKey];
+
+    if (entry) {
+        activeSubModel = entry.model;
+        activeSubVocabulary = entry.labels;
+        routingDebug = { ...routingDebug, handshape, zone, routeKey, matched: true };
+        return routeKey;
+    }
+
+    activeSubModel = null;
+    activeSubVocabulary = null;
+    routingDebug = { ...routingDebug, handshape, zone, routeKey, matched: false };
+    return null;
+}
+
+function getDynamicThreshold() {
+    if (wristVelocityBuffer.length < 2) return CONFIDENCE_THRESHOLD;
+
+    const recent = wristVelocityBuffer.slice(-10);
+    let totalDelta = 0;
+    for (let i = 1; i < recent.length; i++) {
+        const dx = recent[i].x - recent[i - 1].x;
+        const dy = recent[i].y - recent[i - 1].y;
+        totalDelta += Math.sqrt(dx * dx + dy * dy);
+    }
+
+    const avgVelocity = totalDelta / (recent.length - 1);
+    const minVelocity = 0.005;
+    const maxVelocity = 0.015;
+    const minThreshold = 0.80;
+    const maxThreshold = 0.95;
+    const clampedVelocity = Math.max(minVelocity, Math.min(maxVelocity, avgVelocity));
+    const velocityRatio = (clampedVelocity - minVelocity) / (maxVelocity - minVelocity);
+    const dynThreshold = minThreshold + velocityRatio * (maxThreshold - minThreshold);
+
+    routingDebug = { ...routingDebug, velocity: avgVelocity, dynThreshold };
+    return dynThreshold;
+}
+
+function updateRoutingDebugUI() {
+    const debugEl = document.getElementById('routingDebugText');
+    if (!debugEl) return;
+
+    debugEl.innerText = `Route: ${routingDebug.handshape}/${routingDebug.zone} -> ` +
+        `${routingDebug.matched ? routingDebug.routeKey + " (sub-model)" : "flat model"} | ` +
+        `v=${routingDebug.velocity.toFixed(4)} | thr=${routingDebug.dynThreshold.toFixed(2)}`;
+}
+
+function resolveDominantRoute() {
+    const zoneTally = {};
+    let dominantZone = "neutral";
+    let dominantZoneCount = 0;
+
+    for (const key of routeHistoryBuffer) {
+        const sepIdx = key.lastIndexOf("_");
+        const zone = sepIdx === -1 ? "neutral" : key.slice(sepIdx + 1);
+        zoneTally[zone] = (zoneTally[zone] || 0) + 1;
+
+        if (zoneTally[zone] > dominantZoneCount) {
+            dominantZoneCount = zoneTally[zone];
+            dominantZone = zone;
+        }
+    }
+
+    const handshapeTally = {};
+    let dominantHandshape = "unknown";
+    let dominantHandshapeCount = 0;
+
+    for (const key of routeHistoryBuffer) {
+        const sepIdx = key.lastIndexOf("_");
+        const zone = sepIdx === -1 ? "neutral" : key.slice(sepIdx + 1);
+        if (zone !== dominantZone) continue;
+
+        const handshape = sepIdx === -1 ? key : key.slice(0, sepIdx);
+        handshapeTally[handshape] = (handshapeTally[handshape] || 0) + 1;
+
+        if (handshapeTally[handshape] > dominantHandshapeCount) {
+            dominantHandshapeCount = handshapeTally[handshape];
+            dominantHandshape = handshape;
+        }
+    }
+
+    routeToSubModel(dominantHandshape, dominantZone);
+}
+
+function modelAcceptsCurrentBuffer(model) {
+    const expectedFrameSize = model?.inputs?.[0]?.shape?.[2];
+    const actualFrameSize = motionBuffer[0]?.length;
+    return !expectedFrameSize || expectedFrameSize === actualFrameSize;
 }
 
 // the main loop — runs every animation frame while the camera is on
@@ -604,10 +819,10 @@ function renderLandmarks(poseData, handData) {
 // figure out what kind of sign is happening and route to the right detector
 function analyzeMovement(handData, poseData) {
     let currentFrame = [];
+    const primaryHand = handData.landmarks?.length > 0 ? handData.landmarks[0] : null;
 
     if (currentTrackingMode === "asl_letter") {
-        if (handData.landmarks?.length > 0) {
-            const primaryHand = handData.landmarks[0];
+        if (primaryHand) {
             for (let i = 0; i < primaryHand.length; i++) {
                 currentFrame.push(primaryHand[i].x, primaryHand[i].y, primaryHand[i].z);
             }
@@ -622,10 +837,26 @@ function analyzeMovement(handData, poseData) {
         if (motionBuffer.length > REQUIRED_FRAMES) motionBuffer.shift();
     }
 
+    if (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") {
+        if (primaryHand) {
+            const handshape = classifyHandshape(primaryHand);
+            const zone = classifyZone(poseData, primaryHand);
+            routeHistoryBuffer.push(`${handshape}_${zone}`);
+
+            wristVelocityBuffer.push({ x: primaryHand[0].x, y: primaryHand[0].y });
+            if (wristVelocityBuffer.length > 10) wristVelocityBuffer.shift();
+        } else {
+            routeHistoryBuffer.push("unknown_neutral");
+        }
+
+        if (routeHistoryBuffer.length > REQUIRED_FRAMES) routeHistoryBuffer.shift();
+        updateRoutingDebugUI();
+    }
+
     // need a full 30-frame window before we can predict anything
     if (motionBuffer.length === REQUIRED_FRAMES) {
         if (currentTrackingMode === "asl_letter") {
-            const hand = handData.landmarks[0];
+            const hand = primaryHand;
             const oldWristPos = motionBuffer[0];
             const newWristPos = motionBuffer[29]; // the wrist is always the first point (x, y)
 
@@ -648,20 +879,35 @@ function analyzeMovement(handData, poseData) {
 // run the tensorflow model on the buffered frames to recognize a motion sign
 function inferDynamicGesture() {
     staticSignStreak = 0;
-    if (!activeAIModel) return;
+
+    if (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") {
+        resolveDominantRoute();
+    }
+
+    const modelToUse = (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word")
+        ? (activeSubModel || (modelAcceptsCurrentBuffer(activeAIModel) ? activeAIModel : null))
+        : activeAIModel;
+    const vocabularyToUse = (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word")
+        ? (activeSubModel ? activeSubVocabulary : activeVocabulary)
+        : activeVocabulary;
+
+    if (!modelToUse || !vocabularyToUse?.length) {
+        showDynamicIdle(0, true);
+        return;
+    }
 
     const tensorInput = tf.tensor3d([motionBuffer]);
     let aiPrediction;
 
     try {
-        aiPrediction = activeAIModel.predict(tensorInput);
+        aiPrediction = modelToUse.predict(tensorInput);
     } catch (err) {
         tensorInput.dispose();
         return;
     }
 
     const probabilities = Array.from(aiPrediction.dataSync());
-    let mappedResults = probabilities.map((conf, idx) => ({ word: activeVocabulary[idx], conf: conf }));
+    let mappedResults = probabilities.map((conf, idx) => ({ word: vocabularyToUse[idx], conf: conf }));
     mappedResults.sort((a, b) => b.conf - a.conf);
 
     const bestMatch = mappedResults[0];
@@ -671,53 +917,100 @@ function inferDynamicGesture() {
 
     let isUserIdle = ["idle", "none", "", "still"].includes(cleanedSign);
 
-    // check how far the wrists actually moved — if barely at all, they're just standing there
-    let distTraveled = 0;
+    if (currentTrackingMode === "asl_letter") {
+        // check how far the wrist actually moved for motion letters like J/Z
+        const wristStartX = motionBuffer[0][0];
+        const wristStartY = motionBuffer[0][1];
+        const wristEndX = motionBuffer[29][0];
+        const wristEndY = motionBuffer[29][1];
+        const distTraveled = Math.sqrt(Math.pow(wristEndX - wristStartX, 2) + Math.pow(wristEndY - wristStartY, 2));
 
-    // right wrist
-    let rwStartX = motionBuffer[0][162], rwStartY = motionBuffer[0][163];
-    let rwEndX = motionBuffer[29][162], rwEndY = motionBuffer[29][163];
-
-    if (rwStartX !== 0 && rwEndX !== 0) {
-        distTraveled = Math.sqrt(Math.pow(rwEndX - rwStartX, 2) + Math.pow(rwEndY - rwStartY, 2));
+        if (distTraveled < 0.03) {
+            isUserIdle = true;
+        }
     } else {
-        let lwStartX = motionBuffer[0][99], lwStartY = motionBuffer[0][100];
-        let lwEndX = motionBuffer[29][99], lwEndY = motionBuffer[29][100];
-        if (lwStartX !== 0 && lwEndX !== 0) {
-            distTraveled = Math.sqrt(Math.pow(lwEndX - lwStartX, 2) + Math.pow(lwEndY - lwStartY, 2));
+        let totalMovement = 0;
+        let jointCount = 0;
+        const firstFrame = motionBuffer[0];
+        const lastFrame = motionBuffer[motionBuffer.length - 1];
+
+        for (const region of [[99, 162], [162, 225]]) {
+            for (let i = region[0]; i < region[1]; i += 3) {
+                const oldX = firstFrame[i];
+                const oldY = firstFrame[i + 1];
+                const newX = lastFrame[i];
+                const newY = lastFrame[i + 1];
+
+                if ((oldX !== 0 || oldY !== 0) && (newX !== 0 || newY !== 0)) {
+                    totalMovement += Math.sqrt(Math.pow(newX - oldX, 2) + Math.pow(newY - oldY, 2));
+                    jointCount++;
+                }
+            }
+        }
+
+        const avgJointMovement = jointCount > 0 ? totalMovement / jointCount : 0;
+        if (avgJointMovement < 0.003) {
+            isUserIdle = true;
         }
     }
 
-    if (distTraveled < 0.03) {
-        isUserIdle = true;
+    predictionVotes.push({ word: predictedSign, conf: confidenceLevel });
+    if (predictionVotes.length > VOTE_WINDOW) predictionVotes.shift();
+
+    const voteTally = {};
+    let votedSign = predictedSign;
+    let bestVoteScore = 0;
+
+    for (const vote of predictionVotes) {
+        if (!voteTally[vote.word]) voteTally[vote.word] = { count: 0, confSum: 0 };
+        voteTally[vote.word].count++;
+        voteTally[vote.word].confSum += vote.conf;
     }
 
-    if (!isUserIdle && confidenceLevel > CONFIDENCE_THRESHOLD) {
-        showDynamicMatch(predictedSign, confidenceLevel);
+    for (const [word, data] of Object.entries(voteTally)) {
+        const score = data.count * (data.confSum / data.count);
+        if (score > bestVoteScore) {
+            bestVoteScore = score;
+            votedSign = word;
+        }
+    }
 
-        if (predictedSign === lastDynamicGuess) {
+    const idleWords = ["idle", "none", "", "still", "មិនកម្រើក"];
+    const isVotedIdle = isUserIdle || idleWords.includes(votedSign.trim().toLowerCase());
+    const threshold = (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word")
+        ? getDynamicThreshold()
+        : CONFIDENCE_THRESHOLD;
+
+    if (!isVotedIdle && confidenceLevel > threshold) {
+        showDynamicMatch(votedSign, confidenceLevel);
+
+        if (votedSign === lastDynamicGuess) {
             dynamicSignStreak++;
         } else {
-            lastDynamicGuess = predictedSign;
+            lastDynamicGuess = votedSign;
             dynamicSignStreak = 1;
         }
 
-        // J is a quick flick so we don't need as many consecutive hits
-        let requiredHits = (predictedSign.toUpperCase() === "J") ? 8 : 12;
+        const requiredHits = (currentTrackingMode === "asl_letter")
+            ? (votedSign.toUpperCase() === "J" ? 8 : 12)
+            : 4;
 
         if (dynamicSignStreak >= requiredHits && Date.now() > actionCooldown) {
             const topChoices = mappedResults
-                .filter(res => !["idle", "none", "", "still"].includes(res.word.trim().toLowerCase()))
+                .filter(res => !idleWords.includes(res.word.trim().toLowerCase()))
                 .slice(0, 3);
 
-            acceptDynamicWord(topChoices);
+            if (topChoices.length > 0) {
+                acceptDynamicWord(topChoices);
+            }
 
             dynamicSignStreak = 0;
             motionBuffer = [];
             clearHandCache();
+            showDynamicIdle(0, true);
         }
     } else {
-        showDynamicIdle(confidenceLevel, isUserIdle);
+        showDynamicIdle(confidenceLevel, isVotedIdle);
     }
 
     tensorInput.dispose();
@@ -1000,6 +1293,11 @@ function acceptDynamicWord(options) {
 
 function resetInactivity() {
     motionBuffer = [];
+    predictionVotes = [];
+    routeHistoryBuffer = [];
+    wristVelocityBuffer = [];
+    activeSubModel = null;
+    activeSubVocabulary = null;
     dynamicSignStreak = 0;
     staticSignStreak = 0;
     lastStaticGuess = "";
