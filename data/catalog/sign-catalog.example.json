@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "0.1.0",
+  "description": "Example catalog for clip-based sign recognition. Paths are illustrative and should be replaced by real dataset files.",
+  "landmarkLayouts": {
+    "pose33_hands2x21_xyz": {
+      "frameWidth": 225,
+      "parts": [
+        {
+          "name": "pose",
+          "landmarks": 33,
+          "valuesPerLandmark": 3,
+          "offset": 0
+        },
+        {
+          "name": "left_hand",
+          "landmarks": 21,
+          "valuesPerLandmark": 3,
+          "offset": 99
+        },
+        {
+          "name": "right_hand",
+          "landmarks": 21,
+          "valuesPerLandmark": 3,
+          "offset": 162
+        }
+      ]
+    },
+    "hand21_xyz": {
+      "frameWidth": 63,
+      "parts": [
+        {
+          "name": "primary_hand",
+          "landmarks": 21,
+          "valuesPerLandmark": 3,
+          "offset": 0
+        }
+      ]
+    }
+  },
+  "languages": [
+    {
+      "id": "asl",
+      "name": "American Sign Language",
+      "defaultTargetLanguage": "en",
+      "models": [
+        {
+          "id": "asl-isolated-lstm-v1",
+          "task": "isolated_sign_recognition",
+          "modelPath": "models/asl/isolated-lstm-v1/model.json",
+          "labelsPath": "models/asl/isolated-lstm-v1/labels.json",
+          "landmarkLayout": "pose33_hands2x21_xyz",
+          "frameCount": 30,
+          "fps": 15
+        }
+      ],
+      "signs": [
+        {
+          "id": "asl:j",
+          "label": "J",
+          "gloss": "J",
+          "type": "dynamic",
+          "translations": {
+            "en": "letter J"
+          },
+          "samples": [
+            {
+              "id": "asl-j-signer001-001",
+              "signerId": "signer001",
+              "sessionId": "session001",
+              "videoPath": "data/raw/asl/j/signer001-001.webm",
+              "keypointsPath": "data/keypoints/asl/j/signer001-001.json",
+              "split": "train",
+              "fps": 15,
+              "frameCount": 30,
+              "landmarkLayout": "pose33_hands2x21_xyz"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "csl",
+      "name": "CSL",
+      "defaultTargetLanguage": "km",
+      "models": [
+        {
+          "id": "csl-isolated-lstm-v1",
+          "task": "isolated_sign_recognition",
+          "modelPath": "models/csl/isolated-lstm-v1/model.json",
+          "labelsPath": "models/csl/isolated-lstm-v1/labels.json",
+          "landmarkLayout": "pose33_hands2x21_xyz",
+          "frameCount": 30,
+          "fps": 15
+        }
+      ],
+      "signs": [
+        {
+          "id": "csl:thank_you",
+          "label": "thank_you",
+          "gloss": "THANK_YOU",
+          "type": "dynamic",
+          "translations": {
+            "en": "thank you",
+            "km": "awkun"
+          },
+          "samples": [
+            {
+              "id": "csl-thank-you-signer001-001",
+              "signerId": "signer001",
+              "sessionId": "session001",
+              "videoPath": "data/raw/csl/thank_you/signer001-001.webm",
+              "keypointsPath": "data/keypoints/csl/thank_you/signer001-001.json",
+              "split": "validation",
+              "fps": 15,
+              "frameCount": 30,
+              "landmarkLayout": "pose33_hands2x21_xyz",
+              "notes": "Placeholder sample entry. Replace with real consented data."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

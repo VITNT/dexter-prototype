@@ -1,0 +1,63 @@
+{
+  "fist_face": {
+    "model": "./csl-words/fist_face/fist_face_model.json",
+    "labels": "./csl-words/fist_face/fist_face_labels.json"
+  },
+  "open_palm_face": {
+    "model": "./csl-words/open_palm_face/open_palm_face_model.json",
+    "labels": "./csl-words/open_palm_face/open_palm_face_labels.json"
+  },
+  "open_palm_chest": {
+    "model": "./csl-words/open_palm_chest/open_palm_chest_model.json",
+    "labels": "./csl-words/open_palm_chest/open_palm_chest_labels.json"
+  },
+  "index_point_face": {
+    "model": "./csl-words/index_point_face/index_point_face_model.json",
+    "labels": "./csl-words/index_point_face/index_point_face_labels.json"
+  },
+  "index_point_chest": {
+    "model": "./csl-words/index_point_chest/index_point_chest_model.json",
+    "labels": "./csl-words/index_point_chest/index_point_chest_labels.json"
+  },
+  "thumb_up_face": {
+    "model": "./csl-words/thumb_up_face/thumb_up_face_model.json",
+    "labels": "./csl-words/thumb_up_face/thumb_up_face_labels.json"
+  },
+  "thumb_up_chest": {
+    "model": "./csl-words/thumb_up_chest/thumb_up_chest_model.json",
+    "labels": "./csl-words/thumb_up_chest/thumb_up_chest_labels.json"
+  },
+
+  "DISABLED_fist_chest": {
+    "model": "./csl-words/fist_chest/fist_chest_model.json",
+    "labels": "./csl-words/fist_chest/fist_chest_labels.json"
+  },
+  "DISABLED_fist_low": {
+    "model": "./csl-words/fist_low/fist_low_model.json",
+    "labels": "./csl-words/fist_low/fist_low_labels.json"
+  },
+  "DISABLED_open_palm_low": {
+    "model": "./csl-words/open_palm_low/open_palm_low_model.json",
+    "labels": "./csl-words/open_palm_low/open_palm_low_labels.json"
+  },
+  "DISABLED_index_point_low": {
+    "model": "./csl-words/index_point_low/index_point_low_model.json",
+    "labels": "./csl-words/index_point_low/index_point_low_labels.json"
+  },
+  "DISABLED_thumb_up_low": {
+    "model": "./csl-words/thumb_up_low/thumb_up_low_model.json",
+    "labels": "./csl-words/thumb_up_low/thumb_up_low_labels.json"
+  },
+  "DISABLED_curled_face": {
+    "model": "./csl-words/curled_face/curled_face_model.json",
+    "labels": "./csl-words/curled_face/curled_face_labels.json"
+  },
+  "DISABLED_curled_chest": {
+    "model": "./csl-words/curled_chest/curled_chest_model.json",
+    "labels": "./csl-words/curled_chest/curled_chest_labels.json"
+  },
+  "DISABLED_curled_low": {
+    "model": "./csl-words/curled_low/curled_low_model.json",
+    "labels": "./csl-words/curled_low/curled_low_labels.json"
+  }
+}

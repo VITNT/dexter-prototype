@@ -3,23 +3,16 @@
 let currentLang = 'asl';
 // we use the full A-Z alphabet for the ASL dictionary since the labels file only has motion gestures
 let aslVocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-let kslVocab = [];
+let cslVocab = ['កម្ពុជា', 'ត្រូវ', 'ឆ្ងាញ់', 'អរគុណ', 'ខុស'];
 
 async function loadVocabs() {
-    try {
-        const kslRes = await fetch('ksl_labels.json');
-        kslVocab = await kslRes.json();
-        
-        // figure out which language they want based on the url
-        const urlParams = new URLSearchParams(window.location.search);
-        const requestedLang = urlParams.get('lang');
-        if (requestedLang === 'ksl' || requestedLang === 'csl') {
-            switchLanguage('ksl');
-        } else {
-            switchLanguage('asl'); // fall back to ASL if nothing is specified
-        }
-    } catch (err) {
-        console.error("Failed to load vocabularies:", err);
+    // figure out which language they want based on the url
+    const urlParams = new URLSearchParams(window.location.search);
+    const requestedLang = urlParams.get('lang');
+    if (requestedLang === 'csl') {
+        switchLanguage('csl');
+    } else {
+        switchLanguage('asl'); // fall back to ASL if nothing is specified
     }
 }
 
@@ -28,11 +21,11 @@ window.switchLanguage = function(lang) {
     
     // highlight the active language tab
     document.getElementById('tab-asl').classList.toggle('active', lang === 'asl');
-    document.getElementById('tab-csl').classList.toggle('active', lang === 'ksl');
+    document.getElementById('tab-csl').classList.toggle('active', lang === 'csl');
     
     // swap out the dictionary title
     const title = document.getElementById('dictTitle');
-    title.innerText = lang === 'asl' ? 'ASL Dictionary' : 'KSL Dictionary';
+    title.innerText = lang === 'asl' ? 'ASL Dictionary' : 'CSL Dictionary';
     
     // secretly update the url so sharing the link works, without reloading the page
     const newUrl = new URL(window.location);
@@ -56,46 +49,22 @@ function renderDictionary() {
     const grid = document.getElementById('dictGrid');
     grid.innerHTML = '';
     
-    const vocab = currentLang === 'asl' ? aslVocab : kslVocab;
+    const vocab = currentLang === 'asl' ? aslVocab : cslVocab;
+    const existingChart = document.querySelector('.dict-reference-chart');
+    if (existingChart) existingChart.remove();
     
-    // the KSL dictionary has a helpful reference chart we show at the top
-    if (currentLang === 'ksl') {
+    // the CSL dictionary has a helpful reference chart we show at the top
+    if (currentLang === 'csl') {
         const chartCard = document.createElement('div');
         chartCard.className = 'dict-reference-chart';
         chartCard.innerHTML = `
-            <img src="images/csl/csl-reference-chart.png" alt="Khmer Sign Language Reference Chart">
+            <img src="images/csl/csl-reference-chart.png" alt="CSL Reference Chart">
         `;
         grid.parentElement.insertBefore(chartCard, grid);
-    } else {
-        // get rid of the chart if they switch back to ASL
-        const existing = document.querySelector('.dict-reference-chart');
-        if (existing) existing.remove();
     }
     
-    // clean up the chart just to be safe
-    if (currentLang === 'asl') {
-        const existing = document.querySelector('.dict-reference-chart');
-        if (existing) existing.remove();
-    }
-    
-// J and Z require motion, so we try to load GIFs for them
+    // J and Z require motion, and every restored CSL entry is a GIF.
     const dynamicSigns = ['j', 'z'];
-    
-    // Create an observer to only load images when they enter the viewport
-    const cardObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                const card = entry.target;
-                const cleanWord = card.dataset.word;
-                const isDynamic = dynamicSigns.includes(cleanWord);
-                const extensions = isDynamic ? ['gif', 'jpg', 'png'] : ['jpg', 'png', 'gif'];
-                const basePath = `images/${currentLang === 'ksl' ? 'csl' : currentLang}/${cleanWord}`;
-                
-                loadBestImage(card, basePath, extensions);
-                cardObserver.unobserve(card);
-            }
-        });
-    }, { rootMargin: '200px' }); // Load images a bit before they come into view
 
     vocab.forEach(word => {
         // filter out the background noise labels the model uses
@@ -137,42 +106,42 @@ function renderDictionary() {
         `;
         
         grid.appendChild(card);
-        cardObserver.observe(card);
+        const isDynamic = currentLang === 'csl' || dynamicSigns.includes(cleanWord);
+        const extensions = currentLang === 'csl' ? ['gif'] : isDynamic ? ['gif', 'png', 'jpg'] : ['png', 'jpg', 'gif'];
+        const basePath = `images/${currentLang}/${cleanWord}`;
+        loadBestImage(card, basePath, extensions);
     });
 }
 
 /**
- * Tries to find the best image format in parallel and loads it
+ * Tries image formats in order and lets the browser handle loading.
  */
-async function loadBestImage(card, basePath, extensions) {
+function loadBestImage(card, basePath, extensions) {
     const img = card.querySelector('img');
     const placeholder = card.querySelector('.dict-img-placeholder');
+    let extIndex = 0;
     
-    // Check for existence of each extension in parallel to save time
-    // We use HEAD requests to avoid downloading the full file until we pick one
-    const checks = extensions.map(async (ext) => {
-        try {
-            const url = `${basePath}.${ext}`;
-            const response = await fetch(url, { method: 'HEAD' });
-            return response.ok ? url : null;
-        } catch (e) {
-            return null;
-        }
-    });
-
-    const results = await Promise.all(checks);
-    const validUrl = results.find(url => url !== null);
-
-    if (validUrl) {
-        img.src = validUrl;
-        img.onload = () => {
-            img.classList.add('loaded');
-            placeholder.classList.remove('loading');
-        };
-    } else {
-        // No image found, stop loading state
+    img.onload = () => {
+        img.classList.add('loaded');
         placeholder.classList.remove('loading');
+    };
+
+    img.onerror = () => {
+        tryNextExtension();
+    };
+
+    function tryNextExtension() {
+        if (extIndex >= extensions.length) {
+            img.removeAttribute('src');
+            placeholder.classList.remove('loading');
+            return;
+        }
+
+        img.src = `${basePath}.${extensions[extIndex]}`;
+        extIndex++;
     }
+
+    tryNextExtension();
 }
 
 // start everything up once the page is ready

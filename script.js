@@ -25,9 +25,9 @@ let sentenceBuilderDisplay = document.getElementById('builtSentence');
 let handTracker;
 let poseTracker;
 
-// we load the base ASL model plus an optional KSL fallback and the KSL sub-model registry
-let aslModel, kslModel;
-let aslVocab = [], kslVocab = [];
+// we load the base ASL model plus an optional CSL fallback and the CSL sub-model registry
+let aslModel, cslModel;
+let aslVocab = [], cslVocab = [];
 
 // whichever model is selected right now
 let activeAIModel;
@@ -175,20 +175,20 @@ async function initializeMediaPipe() {
     }
 
     try {
-        const kslResponse = await fetch('./ksl_labels.json');
-        if (kslResponse.ok) {
-            kslVocab = await kslResponse.json();
-            kslModel = await tf.loadLayersModel('./ksl_model.json');
-            console.log("Flat KSL model loaded successfully.");
+        const cslResponse = await fetch('./csl_labels.json');
+        if (cslResponse.ok) {
+            cslVocab = await cslResponse.json();
+            cslModel = await tf.loadLayersModel('./csl_model.json');
+            console.log("Flat CSL model loaded successfully.");
         } else {
-            console.log("No flat KSL model labels found; CSL Words will use routed sub-models when available.");
+            console.log("No flat CSL model labels found; CSL Words will use routed sub-models when available.");
         }
     } catch (error) {
-        console.log("Flat KSL model not available; continuing with routed sub-models only.");
+        console.log("Flat CSL model not available; continuing with routed sub-models only.");
     }
 
     try {
-        const registryResponse = await fetch('./ksl-words/submodel-registry.json');
+        const registryResponse = await fetch('./csl-words/submodel-registry.json');
         if (registryResponse.ok) {
             const registryConfig = await registryResponse.json();
             for (const [routeKey, paths] of Object.entries(registryConfig)) {
@@ -271,11 +271,11 @@ window.selectMode = async function (modeId, modeLabel, element) {
     const outputLangUI = document.getElementById('outputLangLabel');
 
     if (currentTrackingMode === "csl_word") {
-        guessLabelUI.innerText = "Mode: KSL Words";
-        rawOutputUI.innerText = `[KSL]`;
-        if (outputLangUI) outputLangUI.innerText = "KSL";
-        activeAIModel = kslModel;
-        activeVocabulary = kslVocab;
+        guessLabelUI.innerText = "Mode: CSL Words";
+        rawOutputUI.innerText = `[CSL]`;
+        if (outputLangUI) outputLangUI.innerText = "CSL";
+        activeAIModel = cslModel;
+        activeVocabulary = cslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
 
     } else if (currentTrackingMode === "asl_word") {
@@ -333,11 +333,11 @@ window.changeMode = async function () {
     const outputLangUI = document.getElementById('outputLangLabel');
 
     if (currentTrackingMode === "csl_word") {
-        guessLabelDisplay.innerText = "Mode: KSL Words";
-        rawExtractionDisplay.innerText = "[KSL]";
-        if (outputLangUI) outputLangUI.innerText = "KSL";
-        activeAIModel = kslModel;
-        activeVocabulary = kslVocab;
+        guessLabelDisplay.innerText = "Mode: CSL Words";
+        rawExtractionDisplay.innerText = "[CSL]";
+        if (outputLangUI) outputLangUI.innerText = "CSL";
+        activeAIModel = cslModel;
+        activeVocabulary = cslVocab;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
 
     } else if (currentTrackingMode === "asl_word") {
