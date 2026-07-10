@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>AI Training Factory</title>
+  <title>TCN Training Factory</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&display=swap" rel="stylesheet">
@@ -55,7 +55,8 @@
     }
 
     .trainer-field input[type="text"],
-    .trainer-field input[type="file"] {
+    .trainer-field input[type="file"],
+    .trainer-field select {
       width: 100%;
       box-sizing: border-box;
       padding: 10px 12px;
@@ -121,10 +122,23 @@
         <div class="trainer-stack">
           <div class="trainer-card">
             <div class="trainer-field">
+              <label for="modelFamily">Model Family</label>
+              <select id="modelFamily">
+                <option value="csl">CSL words (225 values per frame)</option>
+                <option value="asl">ASL spelling (63 values per frame)</option>
+              </select>
+              <p class="trainer-note">
+                This controls validation and gives the downloaded TCN files the names expected by the detector.
+              </p>
+            </div>
+          </div>
+
+          <div class="trainer-card">
+            <div class="trainer-field">
               <label for="subModelName">Sub-Model Name</label>
               <input type="text" id="subModelName" placeholder="e.g. fist_chest" />
               <p class="trainer-note">
-                Optional. When filled, exported files use the same prefix and can be registered under the matching handshape_zone key.
+                Optional for CSL. When filled, exported files use the same prefix and can be registered under the matching handshape_zone key.
               </p>
             </div>
           </div>
