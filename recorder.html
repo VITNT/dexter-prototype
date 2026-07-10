@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>ASL Recording Studio</title>
+    <title>Sign Dataset Recording Studio</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -57,7 +57,7 @@
   </head>
   <body>
 
-    <h1>🎬 Recording Studio</h1>
+    <h1>Recording Studio</h1>
     
     <div style="position: relative; width: 100%; max-width: 640px; aspect-ratio: 4/3; margin: 0 auto;">
       <video id="videoEl" autoplay playsinline muted webkit-playsinline style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover;"></video>
@@ -68,18 +68,26 @@
 
     <!-- Camera Controls -->
     <div class="btn-row" style="margin-top: 12px;">
-      <button id="camBtn" onclick="window.startCamera()" style="background:#4caf50; color:white;">▶ Start Camera</button>
-      <button id="flipBtn" onclick="window.flipCamera()" style="background:#607d8b; color:white;">⟳ Flip Camera</button>
-      <button id="modeBtn" onclick="window.toggleMode()" style="background-color: #ff9800; color:black;">Mode: Hands Only</button>
+      <button id="camBtn" onclick="window.startCamera()" style="background:#4caf50; color:white;">Start Camera</button>
+      <button id="flipBtn" onclick="window.flipCamera()" style="background:#607d8b; color:white;">Flip Camera</button>
+      <button id="modeBtn" onclick="window.toggleMode()" style="background-color: #ff9800; color:black;">Mode: ASL Alphabet (1 Hand)</button>
     </div>
 
     <!-- Dataset Recorder Panel -->
     <div class="collector-ui">
-      <h3>📼 Dataset Recorder</h3>
+      <h3>Dataset Recorder</h3>
 
       <div class="ctrl-row">
         <label class="ctrl-label" for="gestureName">Label:</label>
         <input type="text" id="gestureName" placeholder="e.g., hello" />
+      </div>
+
+      <div class="ctrl-row" style="margin-top: 8px;">
+        <label class="ctrl-label" for="signerId">Signer:</label>
+        <input type="text" id="signerId" placeholder="e.g., signer_01" />
+
+        <label class="ctrl-label" for="sessionId">Session:</label>
+        <input type="text" id="sessionId" placeholder="e.g., 2026-07-11-a" />
       </div>
 
       <div class="ctrl-row" style="margin-top: 8px;">
@@ -91,8 +99,8 @@
       </div>
 
       <div class="btn-row">
-        <button id="recordBtn" onclick="window.recordGesture()">🔴 Record 1 Sample</button>
-        <button id="burstBtn"  onclick="window.recordBurst()">⚡ Burst Record</button>
+        <button id="recordBtn" onclick="window.recordGesture()">Record 1 Sample</button>
+        <button id="burstBtn"  onclick="window.recordBurst()">Burst Record</button>
       </div>
 
       <!-- Live sub-model routing indicator -->
@@ -106,9 +114,9 @@
           letter-spacing: 0.03em;
           color: #aaa;
       ">
-        Routing Bucket:&nbsp;
+        Capture Schema:&nbsp;
         <span id="routingVote" style="color: cyan; font-weight: bold; font-size: 14px;">
-          Determining...
+          ASL hand21_xyz (30 frames)
         </span>
       </div>
 

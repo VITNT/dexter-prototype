@@ -37,12 +37,23 @@ export async function loadSequenceModel({ tf, catalog, languageId, modelId }) {
   }
 
   const modelConfig = getModelConfig(catalog, languageId, modelId);
-  const labels = await loadJson(modelConfig.labelsPath);
-  const model = await tf.loadLayersModel(modelConfig.modelPath);
+  const [labels, model, metadata] = await Promise.all([
+    loadJson(modelConfig.labelsPath),
+    tf.loadLayersModel(modelConfig.modelPath),
+    modelConfig.metadataPath ? loadJson(modelConfig.metadataPath) : Promise.resolve(null)
+  ]);
+
+  const outputCount = model?.outputs?.[0]?.shape?.at(-1);
+  if (Number.isFinite(outputCount) && outputCount !== labels.length) {
+    throw new Error(
+      `Model ${modelConfig.id} outputs ${outputCount} classes, but ${modelConfig.labelsPath} contains ${labels.length} labels.`
+    );
+  }
 
   return {
     model,
     labels,
+    metadata,
     config: modelConfig
   };
 }
@@ -93,6 +104,8 @@ function withLandmarkLayout(catalog, modelConfig) {
   const layout = catalog?.landmarkLayouts?.[modelConfig.landmarkLayout];
   return {
     ...modelConfig,
-    frameWidth: layout?.frameWidth
+    frameWidth: layout?.frameWidth,
+    schemaVersion: modelConfig.schemaVersion || layout?.schemaVersion,
+    modelFrameWidth: modelConfig.modelFrameWidth || layout?.modelFrameWidth || layout?.frameWidth
   };
 }

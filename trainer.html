@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>TCN Training Factory</title>
+  <title>KSL Graph-TCN Training Factory</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&display=swap" rel="stylesheet">
@@ -84,6 +84,116 @@
       color: #5f6368;
       font-size: 15px;
       min-height: 22px;
+      line-height: 1.5;
+    }
+
+    .schema-list {
+      margin: 8px 0 0;
+      padding-left: 20px;
+      color: #5f6368;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .metric-grid > div {
+      display: grid;
+      gap: 4px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid #dadce0;
+    }
+
+    .metric-grid span {
+      color: #5f6368;
+      font-size: 12px;
+    }
+
+    .metric-grid strong {
+      color: #202124;
+      font-size: 20px;
+    }
+
+    .trainer-warning,
+    .trainer-success {
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .trainer-warning {
+      color: #8a4600;
+      background: #fff4e5;
+      border: 1px solid #f6c26b;
+    }
+
+    .trainer-success {
+      color: #0d652d;
+      background: #e6f4ea;
+      border: 1px solid #81c995;
+    }
+
+    .confusion-list {
+      color: #3c4043;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .table-scroll {
+      max-width: 100%;
+      overflow-x: auto;
+    }
+
+    .metrics-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      font-size: 13px;
+    }
+
+    .metrics-table th,
+    .metrics-table td {
+      padding: 9px 10px;
+      text-align: left;
+      border-bottom: 1px solid #dadce0;
+      white-space: nowrap;
+    }
+
+    .metrics-table th {
+      color: #5f6368;
+      background: #f1f3f4;
+    }
+
+    .matrix-details {
+      margin-top: 16px;
+    }
+
+    .matrix-details summary {
+      cursor: pointer;
+      color: #1a73e8;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .confusion-matrix .matrix-hit {
+      background: #e6f4ea;
+      color: #0d652d;
+      font-weight: 700;
+    }
+
+    .confusion-matrix .matrix-miss {
+      background: #fce8e6;
+      color: #b31412;
+      font-weight: 700;
     }
 
     @media screen and (max-width: 800px) {
@@ -93,6 +203,10 @@
 
       .trainer-panel {
         padding: 16px;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
       }
     }
   </style>
@@ -124,13 +238,24 @@
             <div class="trainer-field">
               <label for="modelFamily">Model Family</label>
               <select id="modelFamily">
-                <option value="csl">CSL words (225 values per frame)</option>
-                <option value="asl">ASL spelling (63 values per frame)</option>
+                <option value="csl">KSL words — graph + motion (60 frames)</option>
+                <option value="asl">ASL spelling — legacy TCN (30 frames)</option>
               </select>
               <p class="trainer-note">
-                This controls validation and gives the downloaded TCN files the names expected by the detector.
+                KSL uses a face-free 150-value schema: shoulders, elbows, wrists, hips, and both 21-point hands.
+                Legacy 225-value KSL recordings are converted automatically; old 30-frame clips are resampled to 60.
               </p>
             </div>
+          </div>
+
+          <div class="trainer-card">
+            <strong>Accuracy safeguards</strong>
+            <ul class="schema-list">
+              <li>At least 5 raw recordings are required for every class; 20+ and multiple signers are strongly recommended.</li>
+              <li>Validation clips are never augmented. KSL requires a signer- or session-independent split and refuses recording-only validation.</li>
+              <li>KSL adds velocity, acceleration, hand-to-hand relations, and graph edges before the temporal network.</li>
+              <li>Two-hand grayscale crops are fused only when every uploaded KSL recording contains them.</li>
+            </ul>
           </div>
 
           <div class="trainer-card">
@@ -138,7 +263,7 @@
               <label for="subModelName">Sub-Model Name</label>
               <input type="text" id="subModelName" placeholder="e.g. fist_chest" />
               <p class="trainer-note">
-                Optional for CSL. When filled, exported files use the same prefix and can be registered under the matching handshape_zone key.
+                Optional for legacy KSL routing. When filled, exported files use the same prefix and can be registered under the matching handshape_zone key.
               </p>
             </div>
           </div>
@@ -147,7 +272,7 @@
             <div class="trainer-field">
               <label for="fileInput">Upload JSON files</label>
               <input type="file" id="fileInput" multiple accept=".json" />
-              <p class="trainer-note">Select all recorded samples for a class batch at once.</p>
+              <p class="trainer-note">Select all classes, signers, and sessions for one model in the same training run.</p>
             </div>
           </div>
 
@@ -156,6 +281,8 @@
           </div>
 
           <h3 id="status">Waiting for data...</h3>
+
+          <section id="evaluationReport" class="trainer-card" hidden aria-live="polite"></section>
         </div>
       </div>
     </div>
