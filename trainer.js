@@ -2,6 +2,112 @@
 // THE AI FACTORY SCRIPT
 // ==========================================
 
+const SEQUENCE_LENGTH = 30;
+const TCN_FILTERS = 64;
+const TCN_KERNEL_SIZES = [3, 5, 9, 17];
+const TCN_DROPOUT_RATE = 0.3;
+const TCN_L2_RATE = 0.0005;
+
+// TensorFlow.js 4.10 does not provide serializable causal padding for Conv1D.
+// Reshaping to a one-column image lets built-in ZeroPadding2D + Conv2D perform
+// the equivalent causal temporal convolution without requiring a custom layer
+// when the downloaded model is loaded for inference.
+function applyCausalTemporalConvolution(input, { filters, kernelSize, name }) {
+    const inputChannels = input.shape[input.shape.length - 1];
+    const leftPadding = kernelSize - 1;
+
+    let output = tf.layers.reshape({
+        targetShape: [SEQUENCE_LENGTH, 1, inputChannels],
+        name: `${name}_expand`
+    }).apply(input);
+    output = tf.layers.zeroPadding2d({
+        padding: [[leftPadding, 0], [0, 0]],
+        name: `${name}_causal_padding`
+    }).apply(output);
+    output = tf.layers.conv2d({
+        filters,
+        kernelSize: [kernelSize, 1],
+        padding: 'valid',
+        kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
+        name: `${name}_kernel`
+    }).apply(output);
+
+    return tf.layers.reshape({
+        targetShape: [SEQUENCE_LENGTH, filters],
+        name: `${name}_squeeze`
+    }).apply(output);
+}
+
+// Build a Temporal Convolutional Network (TCN) for sequence classification.
+// Increasing causal kernel sizes give the residual stack a 31-frame receptive
+// field, which fully covers the project's 30-frame input. This avoids the
+// unsupported dilated-convolution gradient in TensorFlow.js 4.x.
+function buildTcnClassifier(dataWidth, numClasses) {
+    const input = tf.input({
+        shape: [SEQUENCE_LENGTH, dataWidth],
+        name: 'landmark_sequence'
+    });
+
+    let output = tf.layers.conv1d({
+        filters: TCN_FILTERS,
+        kernelSize: 1,
+        padding: 'same',
+        kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
+        name: 'input_projection'
+    }).apply(input);
+
+    TCN_KERNEL_SIZES.forEach((kernelSize, blockIndex) => {
+        const residual = output;
+
+        output = applyCausalTemporalConvolution(output, {
+            filters: TCN_FILTERS,
+            kernelSize,
+            name: `tcn_block_${blockIndex + 1}_conv`
+        });
+        output = tf.layers.activation({
+            activation: 'relu',
+            name: `tcn_block_${blockIndex + 1}_relu`
+        }).apply(output);
+        output = tf.layers.dropout({
+            rate: TCN_DROPOUT_RATE,
+            name: `tcn_block_${blockIndex + 1}_dropout`
+        }).apply(output);
+
+        output = tf.layers.add({
+            name: `tcn_block_${blockIndex + 1}_residual`
+        }).apply([residual, output]);
+        output = tf.layers.activation({
+            activation: 'relu',
+            name: `tcn_block_${blockIndex + 1}_output`
+        }).apply(output);
+    });
+
+    output = tf.layers.globalAveragePooling1d({
+        name: 'temporal_pooling'
+    }).apply(output);
+    output = tf.layers.dense({
+        units: 64,
+        activation: 'relu',
+        kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
+        name: 'classification_features'
+    }).apply(output);
+    output = tf.layers.dropout({
+        rate: TCN_DROPOUT_RATE,
+        name: 'classification_dropout'
+    }).apply(output);
+    const prediction = tf.layers.dense({
+        units: numClasses,
+        activation: 'softmax',
+        name: 'class_probabilities'
+    }).apply(output);
+
+    return tf.model({
+        inputs: input,
+        outputs: prediction,
+        name: 'tcn_sign_classifier'
+    });
+}
+
 // --- 1. FORWARD FILL (Data Rescue) ---
 function sanitizeData(frames) {
     if (!frames || frames.length === 0) return frames;
@@ -172,19 +278,49 @@ function augmentSample(frames, label, labelIndex, numClasses) {
     return augmented;
 }
 
+// TensorFlow.js 4.10 model.fit() does not support sampleWeight. Balance only
+// the training split by randomly oversampling minority classes; validation is
+// left at its natural distribution so its metrics remain representative.
+function balanceTrainingSamples(samples, numClasses) {
+    const samplesByClass = Array.from({ length: numClasses }, () => []);
+    samples.forEach(sample => {
+        const classIndex = sample.label.indexOf(1);
+        if (classIndex >= 0) samplesByClass[classIndex].push(sample);
+    });
+
+    const targetCount = Math.max(...samplesByClass.map(group => group.length));
+    const balanced = [];
+
+    samplesByClass.forEach((group, classIndex) => {
+        if (group.length === 0) {
+            throw new Error(`No training samples are available for class index ${classIndex}.`);
+        }
+
+        balanced.push(...group);
+        let classCount = group.length;
+        while (classCount < targetCount) {
+            balanced.push(group[Math.floor(Math.random() * group.length)]);
+            classCount++;
+        }
+    });
+
+    return balanced;
+}
+
 // ==========================================
 // TRAINING PIPELINE
 // ==========================================
 async function startTraining() {
     const fileInput = document.getElementById('fileInput');
     const statusText = document.getElementById('status');
+    const modelFamily = document.getElementById('modelFamily')?.value || 'csl';
 
     // --- Sub-model naming: look for an optional #subModelName text input. ---
     // If present and non-blank, exported files are prefixed with this name and
     // registry-compatible filenames are used. Falls back to default naming otherwise.
     const subModelNameInput = document.getElementById('subModelName');
     const subModelName = subModelNameInput ? subModelNameInput.value.trim() : "";
-    const usingSubModel = subModelName.length > 0;
+    const usingSubModel = modelFamily === 'csl' && subModelName.length > 0;
 
     if (fileInput.files.length === 0) {
         alert("Please upload your JSON files first!");
@@ -196,12 +332,53 @@ async function startTraining() {
     await new Promise(r => setTimeout(r, 50));
     
     let rawData = [];
-    for (let file of fileInput.files) {
-        const text = await file.text();
-        rawData.push(JSON.parse(text));
+    let uniqueLabels;
+    let expectedDataWidth = null;
+
+    try {
+        for (let file of fileInput.files) {
+            const text = await file.text();
+            rawData.push(JSON.parse(text));
+        }
+
+        rawData.forEach((item, recordingIndex) => {
+            if (typeof item.label !== 'string' || item.label.trim() === '') {
+                throw new Error(`Recording ${recordingIndex + 1} is missing a valid label.`);
+            }
+            if (!Array.isArray(item.frames) || item.frames.length !== SEQUENCE_LENGTH) {
+                throw new Error(`Recording ${recordingIndex + 1} must contain exactly ${SEQUENCE_LENGTH} frames.`);
+            }
+
+            item.frames.forEach((frame, frameIndex) => {
+                if (!Array.isArray(frame) || ![63, 225].includes(frame.length)) {
+                    throw new Error(`Recording ${recordingIndex + 1}, frame ${frameIndex + 1} must contain 63 or 225 numeric values.`);
+                }
+                if (expectedDataWidth === null) expectedDataWidth = frame.length;
+                if (frame.length !== expectedDataWidth) {
+                    throw new Error("Do not mix one-hand (63-value) and holistic (225-value) recordings in one training run.");
+                }
+                if (frame.some(value => !Number.isFinite(value))) {
+                    throw new Error(`Recording ${recordingIndex + 1}, frame ${frameIndex + 1} contains a non-numeric value.`);
+                }
+            });
+        });
+
+        const requiredDataWidth = modelFamily === 'asl' ? 63 : 225;
+        if (expectedDataWidth !== requiredDataWidth) {
+            throw new Error(`${modelFamily.toUpperCase()} training requires ${requiredDataWidth} values per frame. Choose the matching recorder mode or model family.`);
+        }
+
+        uniqueLabels = [...new Set(rawData.map(item => item.label))].sort();
+        if (uniqueLabels.length < 2) {
+            throw new Error("TCN training requires recordings from at least two classes.");
+        }
+    } catch (error) {
+        console.error("Unable to prepare training data:", error);
+        statusText.innerText = `Training stopped: ${error.message}`;
+        alert(error.message);
+        return;
     }
 
-    const uniqueLabels = [...new Set(rawData.map(item => item.label))].sort();
     console.log("Found classes:", uniqueLabels);
 
     // --- Per-class raw recording counts (imbalance visibility + class weighting) ---
@@ -215,7 +392,7 @@ async function startTraining() {
     if (maxCount > minCount * 3) {
         const maxLabel = Object.keys(rawCountsByLabel).find(k => rawCountsByLabel[k] === maxCount);
         const minLabel = Object.keys(rawCountsByLabel).find(k => rawCountsByLabel[k] === minCount);
-        console.warn(`⚠️ Class imbalance: "${maxLabel}" has ${maxCount} recordings vs "${minLabel}" with only ${minCount}. Sample weighting below will help, but recording more of the underrepresented classes is the real fix.`);
+        console.warn(`⚠️ Class imbalance: "${maxLabel}" has ${maxCount} recordings vs "${minLabel}" with only ${minCount}. Balanced resampling below will help, but recording more of the underrepresented classes is the real fix.`);
     }
 
     statusText.innerText = `Found ${uniqueLabels.length} classes: ${uniqueLabels.join(", ")}. Splitting train/val by raw recording (before augmentation) to avoid leakage...`;
@@ -262,11 +439,12 @@ async function startTraining() {
         return samples;
     }
 
-    const trainSamples = buildSamples(trainRaw);
+    const unbalancedTrainSamples = buildSamples(trainRaw);
+    const trainSamples = balanceTrainingSamples(unbalancedTrainSamples, uniqueLabels.length);
     const valSamples = buildSamples(valRaw);
 
-    console.log(`Augmented — Train: ${trainSamples.length} (from ${trainRaw.length} originals) | Val: ${valSamples.length} (from ${valRaw.length} originals)`);
-    statusText.innerText = `Augmented: train=${trainSamples.length}, val=${valSamples.length}. Shuffling...`;
+    console.log(`Augmented — Train before balancing: ${unbalancedTrainSamples.length}, after balancing: ${trainSamples.length} (from ${trainRaw.length} originals) | Val: ${valSamples.length} (from ${valRaw.length} originals)`);
+    statusText.innerText = `Augmented and balanced: train=${trainSamples.length}, val=${valSamples.length}. Shuffling...`;
     await new Promise(r => setTimeout(r, 50));
 
     // Shuffle each split independently — order only, splits never mix
@@ -285,21 +463,6 @@ async function startTraining() {
 
     console.log(`Train: ${trainSamples.length} | Val: ${valSamples.length}`);
 
-    // --- Class weighting: counter imbalance with inverse-frequency per-sample weights ---
-    // Computed from raw recording counts (augmentation multiplies every class by the
-    // same factor, so the ratio is preserved) and applied as a per-sample weight tensor.
-    const numClasses = uniqueLabels.length;
-    const totalRaw = rawData.length;
-    const classWeightMap = {};
-    uniqueLabels.forEach((label, idx) => {
-        const count = rawCountsByLabel[label] || 1;
-        classWeightMap[idx] = totalRaw / (numClasses * count);
-    });
-    console.log("Per-class sample weights (inverse frequency):", classWeightMap);
-
-    const trainSampleWeights = trainSamples.map(s => classWeightMap[s.label.indexOf(1)]);
-    const sampleWeightTensor = tf.tensor1d(trainSampleWeights);
-
     const xsTrain = tf.tensor3d(trainSamples.map(s => s.feature));
     const ysTrain = tf.tensor2d(trainSamples.map(s => s.label));
     const xsVal = valSamples.length > 0 ? tf.tensor3d(valSamples.map(s => s.feature)) : null;
@@ -308,41 +471,10 @@ async function startTraining() {
     const dataWidth = trainSamples[0].feature[0].length; 
     console.log(`Auto-detected data width: ${dataWidth} points per frame.`);
 
-    statusText.innerText = `Step 2: Building Deep LSTM Architecture (${dataWidth}-point mode, ${trainSamples.length + valSamples.length} samples)...`;
+    statusText.innerText = `Step 2: Building TCN Architecture (${dataWidth}-point mode, ${trainSamples.length + valSamples.length} samples)...`;
     await new Promise(r => setTimeout(r, 50));
-    
-    // --- Deeper stacked LSTM model ---
-    // Regularization tightened up (L2 weight decay + higher dropout) since small/
-    // single-session datasets are easy for a model this size to just memorize.
-    const model = tf.sequential();
 
-    // Layer 1: LSTM returning sequences so layer 2 can process them
-    model.add(tf.layers.lstm({
-        units: 96,
-        returnSequences: true,
-        inputShape: [30, dataWidth],
-        recurrentDropout: 0.15,
-        kernelRegularizer: tf.regularizers.l2({ l2: 0.001 })
-    }));
-
-    model.add(tf.layers.dropout({ rate: 0.4 }));
-
-    // Layer 2: Second LSTM
-    model.add(tf.layers.lstm({
-        units: 48,
-        returnSequences: false,
-        recurrentDropout: 0.15,
-        kernelRegularizer: tf.regularizers.l2({ l2: 0.001 })
-    }));
-
-    model.add(tf.layers.dropout({ rate: 0.4 }));
-
-    // Dense head
-    model.add(tf.layers.dense({ units: 48, activation: 'relu', kernelRegularizer: tf.regularizers.l2({ l2: 0.001 }) }));
-    model.add(tf.layers.batchNormalization());
-    model.add(tf.layers.dropout({ rate: 0.3 }));
-    model.add(tf.layers.dense({ units: 32, activation: 'relu', kernelRegularizer: tf.regularizers.l2({ l2: 0.001 }) }));
-    model.add(tf.layers.dense({ units: uniqueLabels.length, activation: 'softmax' }));
+    const model = buildTcnClassifier(dataWidth, uniqueLabels.length);
 
     model.compile({
         optimizer: tf.train.adam(0.001),
@@ -366,7 +498,6 @@ async function startTraining() {
         epochs: 80,
         batchSize: 16,
         validationData: xsVal ? [xsVal, ysVal] : undefined,
-        sampleWeight: sampleWeightTensor,
         callbacks: {
             onEpochEnd: async (epoch, logs) => {
                 const acc = (logs.acc * 100).toFixed(1);
@@ -417,15 +548,18 @@ async function startTraining() {
     // Cleanup tensors
     xsTrain.dispose(); ysTrain.dispose();
     if (xsVal) { xsVal.dispose(); ysVal.dispose(); }
-    sampleWeightTensor.dispose();
 
     statusText.innerText = `Step 4: Training Complete! Best Val Acc: ${(bestValAcc * 100).toFixed(1)}%. Downloading files...`;
 
     // --- Dynamic export naming ---
-    // {subModelName}_model.json / {subModelName}_model.weights.bin / {subModelName}_labels.json
-    // when a sub-model name was provided; otherwise fall back to the default csl_model naming.
-    const modelExportName = usingSubModel ? `${subModelName}_model` : "csl_model";
-    const labelsExportName = usingSubModel ? `${subModelName}_labels.json` : "csl_labels.json";
+    // Match the exact filenames already loaded by script.js. CSL sub-models keep
+    // their registry-compatible prefix when a sub-model name was provided.
+    const modelExportName = modelFamily === 'asl'
+        ? "asl-model"
+        : (usingSubModel ? `${subModelName}_model` : "csl_model");
+    const labelsExportName = modelFamily === 'asl'
+        ? "asl-labels.json"
+        : (usingSubModel ? `${subModelName}_labels.json` : "csl_labels.json");
 
     // 1. Save model files (TFJS writes ${modelExportName}.json + ${modelExportName}.weights.bin)
     await model.save(`downloads://${modelExportName}`);
@@ -443,7 +577,10 @@ async function startTraining() {
     a.click();
     document.body.removeChild(a);
 
-    if (usingSubModel) {
+    if (modelFamily === 'asl') {
+        statusText.innerText = `✅ Done! ASL TCN — ${uniqueLabels.length} classes, ` +
+            `best val accuracy: ${(bestValAcc * 100).toFixed(1)}%. Replace the existing ASL model files with these downloads.`;
+    } else if (usingSubModel) {
         statusText.innerText = `✅ Done! Sub-model "${subModelName}" — ${uniqueLabels.length} classes, ` +
             `best val accuracy: ${(bestValAcc * 100).toFixed(1)}%. ` +
             `Add "${subModelName}": { "model": "./${modelExportName}.json", "labels": "./${labelsExportName}" } ` +

@@ -44,10 +44,10 @@
       "defaultTargetLanguage": "en",
       "models": [
         {
-          "id": "asl-isolated-lstm-v1",
+          "id": "asl-isolated-tcn-v1",
           "task": "isolated_sign_recognition",
-          "modelPath": "models/asl/isolated-lstm-v1/model.json",
-          "labelsPath": "models/asl/isolated-lstm-v1/labels.json",
+          "modelPath": "models/asl/isolated-tcn-v1/model.json",
+          "labelsPath": "models/asl/isolated-tcn-v1/labels.json",
           "landmarkLayout": "pose33_hands2x21_xyz",
           "frameCount": 30,
           "fps": 15
@@ -84,10 +84,10 @@
       "defaultTargetLanguage": "km",
       "models": [
         {
-          "id": "csl-isolated-lstm-v1",
+          "id": "csl-isolated-tcn-v1",
           "task": "isolated_sign_recognition",
-          "modelPath": "models/csl/isolated-lstm-v1/model.json",
-          "labelsPath": "models/csl/isolated-lstm-v1/labels.json",
+          "modelPath": "models/csl/isolated-tcn-v1/model.json",
+          "labelsPath": "models/csl/isolated-tcn-v1/labels.json",
           "landmarkLayout": "pose33_hands2x21_xyz",
           "frameCount": 30,
           "fps": 15
