@@ -1,4 +1,5 @@
 import { prepareSequenceForModel } from "./sequence_preprocessing.mjs";
+import { KSL_SCHEMA_VERSION, prepareKslSequence } from "./ksl_feature_pipeline.mjs";
 import { translateLabel } from "./model_registry.mjs";
 
 export async function classifyRecordedSign({
@@ -21,10 +22,20 @@ export async function classifyRecordedSign({
 
   await waitForVideoMetadata(video);
   const rawFrames = await extractSequenceFromVideo(video, trackers.extractFrame, { fps, maxSeconds });
-  const preparedFrames = prepareSequenceForModel(rawFrames, {
-    targetFrameCount: modelConfig?.frameCount || 30,
-    expectedFrameWidth: modelConfig?.frameWidth || 225
-  });
+  const preparedFrames = modelConfig?.schemaVersion === KSL_SCHEMA_VERSION
+    ? prepareKslSequence(rawFrames, {
+        targetFrameCount: modelConfig?.frameCount || 60
+      })
+    : prepareSequenceForModel(rawFrames, {
+        targetFrameCount: modelConfig?.frameCount || 30,
+        expectedFrameWidth: modelConfig?.frameWidth || 225
+      });
+
+  if ((model.inputs?.length || 1) > 1) {
+    throw new Error(
+      "This model also requires two-hand crop frames. Use the live predictor or provide a crop-aware recorded-video extractor."
+    );
+  }
 
   const prediction = predictTopK({ tf, model, labels, frames: preparedFrames, topK: 5 });
   const best = prediction[0];

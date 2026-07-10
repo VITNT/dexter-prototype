@@ -1,23 +1,89 @@
 // ==========================================
-// THE AI FACTORY SCRIPT
+// DEXTER TRAINING FACTORY
 // ==========================================
 
-const SEQUENCE_LENGTH = 30;
-const TCN_FILTERS = 64;
-const TCN_KERNEL_SIZES = [3, 5, 9, 17];
-const TCN_DROPOUT_RATE = 0.3;
+const ASL_SEQUENCE_LENGTH = 30;
+const KSL_SEQUENCE_LENGTH = 60;
+const KSL_SCHEMA_VERSION = 'ksl-landmarks-v2';
+const KSL_RAW_FRAME_WIDTH = 150;
+const LEGACY_HOLISTIC_FRAME_WIDTH = 225;
+const ASL_FRAME_WIDTH = 63;
+const MIN_RAW_RECORDINGS_PER_CLASS = 5;
+const VALIDATION_FRACTION = 0.2;
+
+const TCN_DROPOUT_RATE = 0.35;
 const TCN_L2_RATE = 0.0005;
+const LABEL_SMOOTHING = 0.04;
+
+const KSL_BODY_POSE_INDICES = [11, 12, 13, 14, 15, 16, 23, 24];
+const KSL_BODY_NODE_COUNT = KSL_BODY_POSE_INDICES.length;
+const HAND_NODE_COUNT = 21;
+const KSL_NODE_COUNT = KSL_BODY_NODE_COUNT + (HAND_NODE_COUNT * 2);
+const KSL_NODE_KINEMATIC_WIDTH = KSL_NODE_COUNT * 9;
+const VISUAL_HEIGHT = 24;
+const VISUAL_WIDTH = 48;
+const VISUAL_CHANNELS = 1;
+const VISUAL_FRAME_SIZE = VISUAL_HEIGHT * VISUAL_WIDTH * VISUAL_CHANNELS;
+
+const HAND_BONES = [
+    [0, 1], [1, 2], [2, 3], [3, 4],
+    [0, 5], [5, 6], [6, 7], [7, 8],
+    [5, 9], [9, 10], [10, 11], [11, 12],
+    [9, 13], [13, 14], [14, 15], [15, 16],
+    [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]
+];
+
+// Node order: 8 upper-body nodes, 21 left-hand nodes, 21 right-hand nodes.
+// These explicit edges make the built-in-layer encoder graph-aware without a
+// custom TensorFlow.js layer, so downloaded models remain serializable.
+const BODY_GRAPH_EDGES = [
+    [0, 1], [0, 2], [2, 4], [1, 3], [3, 5],
+    [0, 6], [1, 7], [6, 7]
+];
+const LEFT_HAND_OFFSET = KSL_BODY_NODE_COUNT;
+const RIGHT_HAND_OFFSET = KSL_BODY_NODE_COUNT + HAND_NODE_COUNT;
+const CROSS_HAND_POINTS = [0, 4, 5, 8, 9, 12, 13, 16, 17, 20];
+const KSL_GRAPH_EDGES = [
+    ...BODY_GRAPH_EDGES,
+    ...HAND_BONES.map(([a, b]) => [LEFT_HAND_OFFSET + a, LEFT_HAND_OFFSET + b]),
+    ...HAND_BONES.map(([a, b]) => [RIGHT_HAND_OFFSET + a, RIGHT_HAND_OFFSET + b]),
+    [4, LEFT_HAND_OFFSET],
+    [5, RIGHT_HAND_OFFSET],
+    ...CROSS_HAND_POINTS.map(pointIndex => [
+        LEFT_HAND_OFFSET + pointIndex,
+        RIGHT_HAND_OFFSET + pointIndex
+    ])
+];
+const KSL_GRAPH_EDGE_WIDTH = KSL_GRAPH_EDGES.length * 4;
+const KSL_MODEL_FRAME_WIDTH = KSL_NODE_KINEMATIC_WIDTH + KSL_GRAPH_EDGE_WIDTH + 2;
+
+if (KSL_MODEL_FRAME_WIDTH !== 700) {
+    throw new Error(`Unexpected KSL feature width: ${KSL_MODEL_FRAME_WIDTH}.`);
+}
+
+function getSequenceLength(modelFamily) {
+    return modelFamily === 'asl' ? ASL_SEQUENCE_LENGTH : KSL_SEQUENCE_LENGTH;
+}
+
+function getTcnKernelSizes(sequenceLength) {
+    return sequenceLength > ASL_SEQUENCE_LENGTH
+        ? [3, 5, 9, 17, 33]
+        : [3, 5, 9, 17];
+}
 
 // TensorFlow.js 4.10 does not provide serializable causal padding for Conv1D.
-// Reshaping to a one-column image lets built-in ZeroPadding2D + Conv2D perform
-// the equivalent causal temporal convolution without requiring a custom layer
-// when the downloaded model is loaded for inference.
-function applyCausalTemporalConvolution(input, { filters, kernelSize, name }) {
+// A one-column image plus built-in ZeroPadding2D/Conv2D gives the same result.
+function applyCausalTemporalConvolution(input, {
+    filters,
+    kernelSize,
+    sequenceLength,
+    name
+}) {
     const inputChannels = input.shape[input.shape.length - 1];
     const leftPadding = kernelSize - 1;
 
     let output = tf.layers.reshape({
-        targetShape: [SEQUENCE_LENGTH, 1, inputChannels],
+        targetShape: [sequenceLength, 1, inputChannels],
         name: `${name}_expand`
     }).apply(input);
     output = tf.layers.zeroPadding2d({
@@ -33,58 +99,60 @@ function applyCausalTemporalConvolution(input, { filters, kernelSize, name }) {
     }).apply(output);
 
     return tf.layers.reshape({
-        targetShape: [SEQUENCE_LENGTH, filters],
+        targetShape: [sequenceLength, filters],
         name: `${name}_squeeze`
     }).apply(output);
 }
 
-// Build a Temporal Convolutional Network (TCN) for sequence classification.
-// Increasing causal kernel sizes give the residual stack a 31-frame receptive
-// field, which fully covers the project's 30-frame input. This avoids the
-// unsupported dilated-convolution gradient in TensorFlow.js 4.x.
-function buildTcnClassifier(dataWidth, numClasses) {
+function applyTcnStack(input, { filters, sequenceLength, namePrefix }) {
+    let output = input;
+    getTcnKernelSizes(sequenceLength).forEach((kernelSize, blockIndex) => {
+        const residual = output;
+        const blockName = `${namePrefix}_block_${blockIndex + 1}`;
+
+        output = applyCausalTemporalConvolution(output, {
+            filters,
+            kernelSize,
+            sequenceLength,
+            name: `${blockName}_conv`
+        });
+        output = tf.layers.activation({
+            activation: 'relu',
+            name: `${blockName}_relu`
+        }).apply(output);
+        output = tf.layers.dropout({
+            rate: TCN_DROPOUT_RATE,
+            name: `${blockName}_dropout`
+        }).apply(output);
+        output = tf.layers.add({
+            name: `${blockName}_residual`
+        }).apply([residual, output]);
+        output = tf.layers.activation({
+            activation: 'relu',
+            name: `${blockName}_output`
+        }).apply(output);
+    });
+    return output;
+}
+
+function buildAslTcnClassifier(numClasses) {
     const input = tf.input({
-        shape: [SEQUENCE_LENGTH, dataWidth],
+        shape: [ASL_SEQUENCE_LENGTH, ASL_FRAME_WIDTH],
         name: 'landmark_sequence'
     });
-
     let output = tf.layers.conv1d({
-        filters: TCN_FILTERS,
+        filters: 64,
         kernelSize: 1,
         padding: 'same',
         kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
         name: 'input_projection'
     }).apply(input);
-
-    TCN_KERNEL_SIZES.forEach((kernelSize, blockIndex) => {
-        const residual = output;
-
-        output = applyCausalTemporalConvolution(output, {
-            filters: TCN_FILTERS,
-            kernelSize,
-            name: `tcn_block_${blockIndex + 1}_conv`
-        });
-        output = tf.layers.activation({
-            activation: 'relu',
-            name: `tcn_block_${blockIndex + 1}_relu`
-        }).apply(output);
-        output = tf.layers.dropout({
-            rate: TCN_DROPOUT_RATE,
-            name: `tcn_block_${blockIndex + 1}_dropout`
-        }).apply(output);
-
-        output = tf.layers.add({
-            name: `tcn_block_${blockIndex + 1}_residual`
-        }).apply([residual, output]);
-        output = tf.layers.activation({
-            activation: 'relu',
-            name: `tcn_block_${blockIndex + 1}_output`
-        }).apply(output);
+    output = applyTcnStack(output, {
+        filters: 64,
+        sequenceLength: ASL_SEQUENCE_LENGTH,
+        namePrefix: 'tcn'
     });
-
-    output = tf.layers.globalAveragePooling1d({
-        name: 'temporal_pooling'
-    }).apply(output);
+    output = tf.layers.globalAveragePooling1d({ name: 'temporal_pooling' }).apply(output);
     output = tf.layers.dense({
         units: 64,
         activation: 'relu',
@@ -104,190 +172,504 @@ function buildTcnClassifier(dataWidth, numClasses) {
     return tf.model({
         inputs: input,
         outputs: prediction,
-        name: 'tcn_sign_classifier'
+        name: 'legacy_asl_tcn_classifier'
     });
 }
 
-// --- 1. FORWARD FILL (Data Rescue) ---
-function sanitizeData(frames) {
-    if (!frames || frames.length === 0) return frames;
-    
-    const frameLength = frames[0].length;
-    
-    for (let i = 1; i < frames.length; i++) {
-        if (frameLength === 63) {
-            if (frames[i][0] === 0 && frames[i][1] === 0) {
-                frames[i] = [...frames[i - 1]]; 
-            }
-        } else if (frameLength === 225) {
-            if (frames[i][99] === 0 && frames[i][100] === 0) {
-                for (let j = 99; j <= 161; j++) {
-                    frames[i][j] = frames[i - 1][j]; 
-                }
-            }
-            if (frames[i][162] === 0 && frames[i][163] === 0) {
-                for (let j = 162; j <= 224; j++) {
-                    frames[i][j] = frames[i - 1][j]; 
-                }
-            }
+function buildKslLandmarkEmbedding(landmarkInput) {
+    // Every frame already contains graph-edge vectors/distances. Shared 1x1
+    // projections learn a spatial representation before any temporal mixing.
+    let output = tf.layers.conv1d({
+        filters: 128,
+        kernelSize: 1,
+        padding: 'same',
+        activation: 'relu',
+        kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
+        name: 'spatial_graph_projection_1'
+    }).apply(landmarkInput);
+    output = tf.layers.dropout({ rate: 0.2, name: 'spatial_graph_dropout' }).apply(output);
+    output = tf.layers.conv1d({
+        filters: 96,
+        kernelSize: 1,
+        padding: 'same',
+        activation: 'relu',
+        kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
+        name: 'spatial_graph_projection_2'
+    }).apply(output);
+    output = applyTcnStack(output, {
+        filters: 96,
+        sequenceLength: KSL_SEQUENCE_LENGTH,
+        namePrefix: 'landmark_tcn'
+    });
+    output = tf.layers.globalAveragePooling1d({
+        name: 'landmark_temporal_pooling'
+    }).apply(output);
+    return tf.layers.dense({
+        units: 96,
+        activation: 'relu',
+        kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
+        name: 'landmark_embedding'
+    }).apply(output);
+}
+
+function buildKslVisualEmbedding(visualInput) {
+    if (typeof tf.layers.timeDistributed !== 'function') {
+        throw new Error('This TensorFlow.js build does not provide TimeDistributed layers. Train without visualFrames or upgrade TensorFlow.js.');
+    }
+
+    let output = tf.layers.timeDistributed({
+        layer: tf.layers.conv2d({
+            filters: 12,
+            kernelSize: [3, 3],
+            padding: 'same',
+            activation: 'relu',
+            kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE })
+        }),
+        name: 'hand_crop_conv_1'
+    }).apply(visualInput);
+    output = tf.layers.timeDistributed({
+        layer: tf.layers.maxPooling2d({ poolSize: [2, 2], strides: [2, 2] }),
+        name: 'hand_crop_pool_1'
+    }).apply(output);
+    output = tf.layers.timeDistributed({
+        layer: tf.layers.conv2d({
+            filters: 24,
+            kernelSize: [3, 3],
+            padding: 'same',
+            activation: 'relu',
+            kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE })
+        }),
+        name: 'hand_crop_conv_2'
+    }).apply(output);
+    output = tf.layers.timeDistributed({
+        layer: tf.layers.maxPooling2d({ poolSize: [2, 2], strides: [2, 2] }),
+        name: 'hand_crop_pool_2'
+    }).apply(output);
+    output = tf.layers.timeDistributed({
+        layer: tf.layers.globalAveragePooling2d({}),
+        name: 'hand_crop_spatial_pool'
+    }).apply(output);
+    output = tf.layers.conv1d({
+        filters: 48,
+        kernelSize: 5,
+        padding: 'same',
+        activation: 'relu',
+        kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
+        name: 'hand_crop_temporal_conv'
+    }).apply(output);
+    output = tf.layers.dropout({ rate: 0.3, name: 'hand_crop_temporal_dropout' }).apply(output);
+    output = tf.layers.globalAveragePooling1d({
+        name: 'hand_crop_temporal_pooling'
+    }).apply(output);
+    return tf.layers.dense({
+        units: 64,
+        activation: 'relu',
+        kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
+        name: 'hand_crop_embedding'
+    }).apply(output);
+}
+
+function buildKslGraphTcnClassifier(numClasses, usesHandCrops) {
+    const landmarkInput = tf.input({
+        shape: [KSL_SEQUENCE_LENGTH, KSL_MODEL_FRAME_WIDTH],
+        name: 'ksl_graph_sequence'
+    });
+    const landmarkEmbedding = buildKslLandmarkEmbedding(landmarkInput);
+    const inputs = [landmarkInput];
+    let fusedEmbedding = landmarkEmbedding;
+
+    if (usesHandCrops) {
+        const visualInput = tf.input({
+            shape: [KSL_SEQUENCE_LENGTH, VISUAL_HEIGHT, VISUAL_WIDTH, VISUAL_CHANNELS],
+            name: 'two_hand_crops'
+        });
+        inputs.push(visualInput);
+        const visualEmbedding = buildKslVisualEmbedding(visualInput);
+        fusedEmbedding = tf.layers.concatenate({ name: 'late_modal_fusion' })
+            .apply([landmarkEmbedding, visualEmbedding]);
+    }
+
+    let output = tf.layers.dense({
+        units: 128,
+        activation: 'relu',
+        kernelRegularizer: tf.regularizers.l2({ l2: TCN_L2_RATE }),
+        name: 'fusion_features'
+    }).apply(fusedEmbedding);
+    output = tf.layers.dropout({
+        rate: 0.4,
+        name: 'fusion_dropout'
+    }).apply(output);
+    const prediction = tf.layers.dense({
+        units: numClasses,
+        activation: 'softmax',
+        name: 'class_probabilities'
+    }).apply(output);
+
+    return tf.model({
+        inputs: usesHandCrops ? inputs : landmarkInput,
+        outputs: prediction,
+        name: usesHandCrops
+            ? 'ksl_graph_tcn_hand_crop_fusion'
+            : 'ksl_graph_tcn_classifier'
+    });
+}
+
+// Focal cross-entropy keeps correctly classified/easy clips from dominating the
+// gradient, so visually similar hard negatives continue to influence training.
+// This is a training-only function; the saved inference graph uses built-in layers.
+function focalCategoricalCrossentropy(yTrue, yPred) {
+    return tf.tidy(() => {
+        const clipped = tf.clipByValue(yPred, 1e-7, 1 - 1e-7);
+        const trueClassProbability = tf.sum(tf.mul(yTrue, clipped), -1);
+        const crossEntropy = tf.neg(tf.sum(tf.mul(yTrue, tf.log(clipped)), -1));
+        const hardExampleWeight = tf.pow(tf.sub(1, trueClassProbability), 2);
+        return tf.mul(hardExampleWeight, crossEntropy);
+    });
+}
+
+function pointIsPresent(frame, pointIndex) {
+    const offset = pointIndex * 3;
+    return !(frame[offset] === 0 && frame[offset + 1] === 0 && frame[offset + 2] === 0);
+}
+
+function rangeIsPresent(frame, startPoint, pointCount) {
+    for (let point = startPoint; point < startPoint + pointCount; point++) {
+        if (pointIsPresent(frame, point)) return true;
+    }
+    return false;
+}
+
+function forwardFillRange(frames, startPoint, pointCount) {
+    for (let frameIndex = 1; frameIndex < frames.length; frameIndex++) {
+        if (rangeIsPresent(frames[frameIndex], startPoint, pointCount)) continue;
+        const start = startPoint * 3;
+        const end = (startPoint + pointCount) * 3;
+        for (let valueIndex = start; valueIndex < end; valueIndex++) {
+            frames[frameIndex][valueIndex] = frames[frameIndex - 1][valueIndex];
         }
     }
+}
+
+function sanitizeData(sourceFrames) {
+    if (!Array.isArray(sourceFrames) || sourceFrames.length === 0) return sourceFrames;
+    const frames = sourceFrames.map(frame => [...frame]);
+    const frameLength = frames[0].length;
+
+    // Keep KSL missing-hand frames as zero. Hand-presence channels are part of
+    // the new schema and must distinguish genuine one-hand signs from dropouts.
+    if (frameLength === ASL_FRAME_WIDTH) forwardFillRange(frames, 0, HAND_NODE_COUNT);
     return frames;
 }
 
-// --- 2. BODY-CENTRIC NORMALIZATION ---
-// NOTE: This exact transform is also applied in recorder.js at record-time.
-// Keeping both in sync is critical — changing one requires changing the other.
-function normalizeFrames(frames) {
-    let normalizedFrames = [];
-    
-    for (let frame of frames) {
-        let anchorX = frame[0];
-        let anchorY = frame[1];
+function resampleFrames(frames, targetLength) {
+    if (frames.length === targetLength) return frames.map(frame => [...frame]);
+    if (frames.length < 2) throw new Error('A recording needs at least two frames to be resampled.');
 
-        if (anchorX === 0 && anchorY === 0) { anchorX = frame[99]; anchorY = frame[100]; } 
-        if (anchorX === 0 && anchorY === 0) { anchorX = frame[162]; anchorY = frame[163]; }
-
-        let newFrame = [];
-        for (let i = 0; i < frame.length; i += 3) {
-            let x = frame[i];
-            let y = frame[i+1];
-            let z = frame[i+2];
-
-            if (x === 0 && y === 0) {
-                newFrame.push(0, 0, 0);
-            } else {
-                newFrame.push(x - anchorX, y - anchorY, z);
+    const result = [];
+    for (let targetIndex = 0; targetIndex < targetLength; targetIndex++) {
+        const sourcePosition = targetIndex * (frames.length - 1) / (targetLength - 1);
+        const lowerIndex = Math.floor(sourcePosition);
+        const upperIndex = Math.min(lowerIndex + 1, frames.length - 1);
+        const amount = sourcePosition - lowerIndex;
+        const frame = new Array(frames[0].length).fill(0);
+        for (let pointIndex = 0; pointIndex < frame.length / 3; pointIndex++) {
+            const lowerPresent = pointIsPresent(frames[lowerIndex], pointIndex);
+            const upperPresent = pointIsPresent(frames[upperIndex], pointIndex);
+            const chosenIndex = amount < 0.5 ? lowerIndex : upperIndex;
+            for (let axis = 0; axis < 3; axis++) {
+                const valueIndex = (pointIndex * 3) + axis;
+                frame[valueIndex] = lowerPresent && upperPresent
+                    ? frames[lowerIndex][valueIndex] * (1 - amount) + frames[upperIndex][valueIndex] * amount
+                    : frames[chosenIndex][valueIndex];
             }
         }
-        normalizedFrames.push(newFrame);
-    }
-    return normalizedFrames;
-}
-
-// ==========================================
-// DATA AUGMENTATION PIPELINE
-// ==========================================
-
-// Time warp: interpolate or skip frames to change playback speed
-function timeWarp(frames, speedFactor) {
-    const originalLen = frames.length;
-    const result = [];
-    for (let i = 0; i < originalLen; i++) {
-        // Sample from the original sequence at a different rate
-        const srcIdx = Math.min(Math.floor(i * speedFactor), originalLen - 1);
-        const nextIdx = Math.min(srcIdx + 1, originalLen - 1);
-        const t = (i * speedFactor) - Math.floor(i * speedFactor);
-        // Linear interpolation between frames
-        const interp = frames[srcIdx].map((v, j) => v * (1 - t) + frames[nextIdx][j] * t);
-        result.push(interp);
+        result.push(frame);
     }
     return result;
 }
 
-// Spatial jitter: add small Gaussian noise to all landmarks
-function spatialJitter(frames, sigma = 0.005) {
-    return frames.map(frame =>
-        frame.map((v, i) => {
-            // Don't jitter zero-filled (missing) landmarks
-            if (i % 3 !== 2 && v === 0) return v; // skip x/y that are 0
-            // Simple Box-Muller Gaussian approximation
-            const u1 = Math.random(), u2 = Math.random();
-            const noise = sigma * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-            return v + noise;
-        })
+function extractKslPositionFrames(frames) {
+    if (frames[0].length === KSL_RAW_FRAME_WIDTH) {
+        return frames.map(frame => [...frame]);
+    }
+
+    return frames.map(frame => {
+        const reduced = [];
+        KSL_BODY_POSE_INDICES.forEach(poseIndex => {
+            const offset = poseIndex * 3;
+            reduced.push(frame[offset], frame[offset + 1], frame[offset + 2]);
+        });
+        reduced.push(...frame.slice(99, 162));
+        reduced.push(...frame.slice(162, 225));
+        return reduced;
+    });
+}
+
+function midpoint(frame, firstPoint, secondPoint) {
+    if (!pointIsPresent(frame, firstPoint) || !pointIsPresent(frame, secondPoint)) return null;
+    const firstOffset = firstPoint * 3;
+    const secondOffset = secondPoint * 3;
+    return [
+        (frame[firstOffset] + frame[secondOffset]) / 2,
+        (frame[firstOffset + 1] + frame[secondOffset + 1]) / 2,
+        (frame[firstOffset + 2] + frame[secondOffset + 2]) / 2
+    ];
+}
+
+function planarDistance(frame, firstPoint, secondPoint) {
+    if (!pointIsPresent(frame, firstPoint) || !pointIsPresent(frame, secondPoint)) return 0;
+    const firstOffset = firstPoint * 3;
+    const secondOffset = secondPoint * 3;
+    return Math.hypot(
+        frame[firstOffset] - frame[secondOffset],
+        frame[firstOffset + 1] - frame[secondOffset + 1]
     );
 }
 
-// Pose landmark left/right pairs (MediaPipe Pose topology). When mirroring holistic
-// (225-point) data, these must be SWAPPED after negating x — otherwise a mirrored
-// "left elbow" point just ends up as a flipped-x point still labeled "left elbow",
-// which is anatomically impossible and just injects noise into training.
-const POSE_LR_PAIRS = [
-    [1, 4], [2, 5], [3, 6], [7, 8], [9, 10],
-    [11, 12], [13, 14], [15, 16], [17, 18], [19, 20], [21, 22],
-    [23, 24], [25, 26], [27, 28], [29, 30], [31, 32]
-];
+function firstPresentPoint(frame, candidates) {
+    for (const pointIndex of candidates) {
+        if (pointIsPresent(frame, pointIndex)) {
+            const offset = pointIndex * 3;
+            return [frame[offset], frame[offset + 1], frame[offset + 2]];
+        }
+    }
+    return [0, 0, 0];
+}
 
-// Horizontal mirror: flip x-coordinates relative to center (0.5 in raw, 0 in normalized)
+function normalizeKslPositionFrames(frames) {
+    return frames.map(frame => {
+        const shoulderMidpoint = midpoint(frame, 0, 1);
+        const hipMidpoint = midpoint(frame, 6, 7);
+        const anchor = shoulderMidpoint || hipMidpoint || firstPresentPoint(frame, [4, 5, 8, 29]);
+
+        let scale = planarDistance(frame, 0, 1);
+        if (scale < 0.03 && shoulderMidpoint && hipMidpoint) {
+            scale = Math.hypot(
+                shoulderMidpoint[0] - hipMidpoint[0],
+                shoulderMidpoint[1] - hipMidpoint[1]
+            );
+        }
+        if (scale < 0.03) scale = 1;
+
+        const normalized = [];
+        for (let pointIndex = 0; pointIndex < KSL_NODE_COUNT; pointIndex++) {
+            if (!pointIsPresent(frame, pointIndex)) {
+                normalized.push(0, 0, 0);
+                continue;
+            }
+            const offset = pointIndex * 3;
+            const normalizedZ = pointIndex < KSL_BODY_NODE_COUNT
+                ? (frame[offset + 2] - anchor[2]) / scale
+                : frame[offset + 2] / scale;
+            normalized.push(
+                (frame[offset] - anchor[0]) / scale,
+                (frame[offset + 1] - anchor[1]) / scale,
+                normalizedZ
+            );
+        }
+        return normalized;
+    });
+}
+
+function normalizeAslFrames(frames) {
+    return frames.map(frame => {
+        let anchorOffset = 0;
+        if (!pointIsPresent(frame, 0)) {
+            const firstVisible = Array.from({ length: HAND_NODE_COUNT }, (_, index) => index)
+                .find(pointIndex => pointIsPresent(frame, pointIndex));
+            anchorOffset = (firstVisible || 0) * 3;
+        }
+        const anchorX = frame[anchorOffset];
+        const anchorY = frame[anchorOffset + 1];
+        return frame.flatMap((value, valueIndex) => {
+            if (valueIndex % 3 !== 0) return [];
+            const pointIndex = valueIndex / 3;
+            if (!pointIsPresent(frame, pointIndex)) return [0, 0, 0];
+            return [
+                frame[valueIndex] - anchorX,
+                frame[valueIndex + 1] - anchorY,
+                frame[valueIndex + 2]
+            ];
+        });
+    });
+}
+
+function buildKslGraphFeatures(positionFrames) {
+    return positionFrames.map((frame, frameIndex) => {
+        const previousFrame = frameIndex > 0 ? positionFrames[frameIndex - 1] : null;
+        const twoFramesBack = frameIndex > 1 ? positionFrames[frameIndex - 2] : null;
+        const features = [];
+
+        for (let pointIndex = 0; pointIndex < KSL_NODE_COUNT; pointIndex++) {
+            const offset = pointIndex * 3;
+            const present = pointIsPresent(frame, pointIndex);
+            const previousPresent = previousFrame && pointIsPresent(previousFrame, pointIndex);
+            const twoBackPresent = twoFramesBack && pointIsPresent(twoFramesBack, pointIndex);
+            const position = present ? frame.slice(offset, offset + 3) : [0, 0, 0];
+            const velocity = present && previousPresent
+                ? position.map((value, axis) => value - previousFrame[offset + axis])
+                : [0, 0, 0];
+            const acceleration = present && previousPresent && twoBackPresent
+                ? position.map((value, axis) =>
+                    value - (2 * previousFrame[offset + axis]) + twoFramesBack[offset + axis]
+                )
+                : [0, 0, 0];
+            features.push(...position, ...velocity, ...acceleration);
+        }
+
+        KSL_GRAPH_EDGES.forEach(([sourcePoint, targetPoint]) => {
+            if (!pointIsPresent(frame, sourcePoint) || !pointIsPresent(frame, targetPoint)) {
+                features.push(0, 0, 0, 0);
+                return;
+            }
+            const sourceOffset = sourcePoint * 3;
+            const targetOffset = targetPoint * 3;
+            const dx = frame[targetOffset] - frame[sourceOffset];
+            const dy = frame[targetOffset + 1] - frame[sourceOffset + 1];
+            const dz = frame[targetOffset + 2] - frame[sourceOffset + 2];
+            features.push(dx, dy, dz, Math.hypot(dx, dy, dz));
+        });
+
+        features.push(
+            rangeIsPresent(frame, LEFT_HAND_OFFSET, HAND_NODE_COUNT) ? 1 : 0,
+            rangeIsPresent(frame, RIGHT_HAND_OFFSET, HAND_NODE_COUNT) ? 1 : 0
+        );
+        return features;
+    });
+}
+
+// ==========================================
+// DATA AUGMENTATION (TRAINING ONLY)
+// ==========================================
+
+function timeWarp(frames, speedFactor) {
+    const result = [];
+    for (let targetIndex = 0; targetIndex < frames.length; targetIndex++) {
+        const sourcePosition = Math.min(targetIndex * speedFactor, frames.length - 1);
+        const lowerIndex = Math.floor(sourcePosition);
+        const upperIndex = Math.min(lowerIndex + 1, frames.length - 1);
+        const amount = sourcePosition - lowerIndex;
+        result.push(frames[lowerIndex].map((value, valueIndex) =>
+            value * (1 - amount) + frames[upperIndex][valueIndex] * amount
+        ));
+    }
+    return result;
+}
+
+function timeWarpVisualFrames(frames, speedFactor) {
+    return frames.map((_, targetIndex) => {
+        const sourceIndex = Math.min(Math.round(targetIndex * speedFactor), frames.length - 1);
+        return frames[sourceIndex];
+    });
+}
+
+function spatialJitter(frames, sigma = 0.005) {
+    return frames.map(frame => {
+        const jittered = [...frame];
+        for (let pointIndex = 0; pointIndex < frame.length / 3; pointIndex++) {
+            if (!pointIsPresent(frame, pointIndex)) continue;
+            const offset = pointIndex * 3;
+            for (let axis = 0; axis < 3; axis++) {
+                const u1 = Math.max(Math.random(), Number.EPSILON);
+                const u2 = Math.random();
+                const noise = sigma * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                jittered[offset + axis] += noise;
+            }
+        }
+        return jittered;
+    });
+}
+
+function swapPointData(frame, firstPoint, secondPoint) {
+    for (let axis = 0; axis < 3; axis++) {
+        const firstOffset = (firstPoint * 3) + axis;
+        const secondOffset = (secondPoint * 3) + axis;
+        const value = frame[firstOffset];
+        frame[firstOffset] = frame[secondOffset];
+        frame[secondOffset] = value;
+    }
+}
+
 function mirrorFrames(frames) {
-    const frameLength = frames[0].length;
+    const frameWidth = frames[0].length;
     return frames.map(frame => {
         const mirrored = [...frame];
-
-        // Negate x for every point (in normalized space, center is 0)
-        for (let i = 0; i < frameLength; i += 3) {
-            mirrored[i] = -frame[i];
+        for (let valueIndex = 0; valueIndex < frameWidth; valueIndex += 3) {
+            mirrored[valueIndex] = -mirrored[valueIndex];
         }
 
-        if (frameLength === 225) {
-            // Holistic layout: pose(0-98) + leftHand(99-161) + rightHand(162-224).
-            // A mirrored right-handed signer looks left-handed, so the hand DATA
-            // must move into the other hand's slot, not just flip x in place.
-            const leftHand = mirrored.slice(99, 162);
-            const rightHand = mirrored.slice(162, 225);
-            for (let i = 0; i < 63; i++) {
-                mirrored[99 + i] = rightHand[i];
-                mirrored[162 + i] = leftHand[i];
-            }
-
-            // Swap paired left/right pose landmarks (shoulders, elbows, hips, etc.)
-            for (const [a, b] of POSE_LR_PAIRS) {
-                for (let k = 0; k < 3; k++) {
-                    const tmp = mirrored[a * 3 + k];
-                    mirrored[a * 3 + k] = mirrored[b * 3 + k];
-                    mirrored[b * 3 + k] = tmp;
-                }
+        if (frameWidth === KSL_RAW_FRAME_WIDTH) {
+            [[0, 1], [2, 3], [4, 5], [6, 7]].forEach(([left, right]) =>
+                swapPointData(mirrored, left, right)
+            );
+            for (let pointIndex = 0; pointIndex < HAND_NODE_COUNT; pointIndex++) {
+                swapPointData(
+                    mirrored,
+                    LEFT_HAND_OFFSET + pointIndex,
+                    RIGHT_HAND_OFFSET + pointIndex
+                );
             }
         }
-        // frameLength === 63 (single hand only): x-negation alone is correct —
-        // there's only one hand slot and no left/right pose skeleton to swap.
-
         return mirrored;
     });
 }
 
-// Generate all augmented variants of a single sample
-function augmentSample(frames, label, labelIndex, numClasses) {
+function mirrorVisualFrames(frames) {
+    return frames.map(frame => {
+        const mirrored = new Array(VISUAL_FRAME_SIZE);
+        for (let row = 0; row < VISUAL_HEIGHT; row++) {
+            for (let column = 0; column < VISUAL_WIDTH; column++) {
+                mirrored[(row * VISUAL_WIDTH) + column] =
+                    frame[(row * VISUAL_WIDTH) + (VISUAL_WIDTH - column - 1)];
+            }
+        }
+        return mirrored;
+    });
+}
+
+function makeLabel(labelIndex, numClasses, smoothing = 0) {
+    const offValue = smoothing / numClasses;
+    const label = new Array(numClasses).fill(offValue);
+    label[labelIndex] = 1 - smoothing + offValue;
+    return label;
+}
+
+function createSample(positionFrames, visualFrames, labelIndex, numClasses, modelFamily, smoothing) {
+    return {
+        feature: modelFamily === 'asl' ? positionFrames : buildKslGraphFeatures(positionFrames),
+        visual: visualFrames,
+        label: makeLabel(labelIndex, numClasses, smoothing),
+        labelIndex
+    };
+}
+
+function augmentSample(positionFrames, visualFrames, labelIndex, numClasses, modelFamily) {
     const augmented = [];
+    const add = (positions, visuals) => augmented.push(createSample(
+        positions,
+        visuals,
+        labelIndex,
+        numClasses,
+        modelFamily,
+        LABEL_SMOOTHING
+    ));
 
-    function makeEntry(f) {
-        const oneHot = new Array(numClasses).fill(0);
-        oneHot[labelIndex] = 1;
-        augmented.push({ feature: f, label: oneHot });
-    }
+    add(positionFrames, visualFrames);
+    add(timeWarp(positionFrames, 0.85), visualFrames ? timeWarpVisualFrames(visualFrames, 0.85) : null);
+    add(timeWarp(positionFrames, 1.15), visualFrames ? timeWarpVisualFrames(visualFrames, 1.15) : null);
+    add(spatialJitter(positionFrames, 0.004), visualFrames);
+    add(spatialJitter(positionFrames, 0.007), visualFrames);
 
-    // Original (already normalized)
-    makeEntry(frames);
-
-    // Speed variation: 0.8x (slower) and 1.2x (faster)
-    makeEntry(timeWarp(frames, 0.8));
-    makeEntry(timeWarp(frames, 1.2));
-
-    // Spatial jitter (two different noise seeds)
-    makeEntry(spatialJitter(frames, 0.004));
-    makeEntry(spatialJitter(frames, 0.007));
-
-    // Horizontal mirror
-    const mirrored = mirrorFrames(frames);
-    makeEntry(mirrored);
-
-    // Mirror + jitter
-    makeEntry(spatialJitter(mirrored, 0.004));
-
+    const mirroredPositions = mirrorFrames(positionFrames);
+    const mirroredVisuals = visualFrames ? mirrorVisualFrames(visualFrames) : null;
+    add(mirroredPositions, mirroredVisuals);
+    add(spatialJitter(mirroredPositions, 0.004), mirroredVisuals);
     return augmented;
 }
 
-// TensorFlow.js 4.10 model.fit() does not support sampleWeight. Balance only
-// the training split by randomly oversampling minority classes; validation is
-// left at its natural distribution so its metrics remain representative.
 function balanceTrainingSamples(samples, numClasses) {
     const samplesByClass = Array.from({ length: numClasses }, () => []);
-    samples.forEach(sample => {
-        const classIndex = sample.label.indexOf(1);
-        if (classIndex >= 0) samplesByClass[classIndex].push(sample);
-    });
-
+    samples.forEach(sample => samplesByClass[sample.labelIndex].push(sample));
     const targetCount = Math.max(...samplesByClass.map(group => group.length));
     const balanced = [];
 
@@ -295,297 +677,660 @@ function balanceTrainingSamples(samples, numClasses) {
         if (group.length === 0) {
             throw new Error(`No training samples are available for class index ${classIndex}.`);
         }
-
         balanced.push(...group);
-        let classCount = group.length;
-        while (classCount < targetCount) {
+        for (let count = group.length; count < targetCount; count++) {
             balanced.push(group[Math.floor(Math.random() * group.length)]);
-            classCount++;
         }
     });
-
     return balanced;
+}
+
+function shuffleInPlace(items) {
+    for (let index = items.length - 1; index > 0; index--) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
+    }
+    return items;
+}
+
+function metadataString(recording, camelName, snakeName) {
+    const value = recording[camelName] ?? recording[snakeName];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function chooseValidationGrouping(rawData) {
+    const signerIds = rawData.map(item => metadataString(item, 'signerId', 'signer_id'));
+    if (signerIds.every(Boolean) && new Set(signerIds).size > 1) {
+        return {
+            mode: 'signer',
+            key: item => metadataString(item, 'signerId', 'signer_id'),
+            warning: null
+        };
+    }
+
+    const sessionIds = rawData.map(item => metadataString(item, 'sessionId', 'session_id'));
+    if (sessionIds.every(Boolean) && new Set(sessionIds).size > 1) {
+        return {
+            mode: 'session',
+            key: item => {
+                const signer = metadataString(item, 'signerId', 'signer_id') || 'unknown-signer';
+                return `${signer}::${metadataString(item, 'sessionId', 'session_id')}`;
+            },
+            warning: 'Validation is session-independent, but not signer-independent.'
+        };
+    }
+
+    return {
+        mode: 'recording',
+        key: item => metadataString(item, 'recordingId', 'recording_id') || item._sourceName,
+        warning: 'WARNING: validation is split only by recording. It is not signer-independent and can still report misleadingly high accuracy.'
+    };
+}
+
+function splitByRecording(rawData, uniqueLabels) {
+    const trainRaw = [];
+    const valRaw = [];
+    uniqueLabels.forEach(label => {
+        const recordings = shuffleInPlace(rawData.filter(item => item.label === label).slice());
+        const validationCount = Math.min(
+            recordings.length - 1,
+            Math.max(1, Math.round(recordings.length * VALIDATION_FRACTION))
+        );
+        valRaw.push(...recordings.slice(0, validationCount));
+        trainRaw.push(...recordings.slice(validationCount));
+    });
+    return { trainRaw, valRaw };
+}
+
+function scoreValidationGroups(rawData, uniqueLabels, grouping, selectedGroups) {
+    let score = 0;
+    for (const label of uniqueLabels) {
+        const labelItems = rawData.filter(item => item.label === label);
+        const validationCount = labelItems.filter(item => selectedGroups.has(grouping.key(item))).length;
+        const trainingCount = labelItems.length - validationCount;
+        if (validationCount === 0 || trainingCount === 0) score += 10000;
+        score += Math.abs((validationCount / labelItems.length) - VALIDATION_FRACTION);
+    }
+    return score;
+}
+
+function splitByMetadataGroup(rawData, uniqueLabels, grouping) {
+    const groups = [...new Set(rawData.map(grouping.key))];
+    const validationGroupCount = Math.min(
+        groups.length - 1,
+        Math.max(1, Math.round(groups.length * VALIDATION_FRACTION))
+    );
+    let bestGroups = null;
+    let bestScore = Infinity;
+
+    for (let attempt = 0; attempt < 500; attempt++) {
+        const candidate = new Set(shuffleInPlace(groups.slice()).slice(0, validationGroupCount));
+        const score = scoreValidationGroups(rawData, uniqueLabels, grouping, candidate);
+        if (score < bestScore) {
+            bestScore = score;
+            bestGroups = candidate;
+        }
+        if (score < 1) break;
+    }
+
+    if (!bestGroups || bestScore >= 10000) {
+        throw new Error(
+            `A ${grouping.mode}-independent validation split cannot include every class on both sides. ` +
+            `Record every label with at least two ${grouping.mode}s.`
+        );
+    }
+
+    return {
+        trainRaw: rawData.filter(item => !bestGroups.has(grouping.key(item))),
+        valRaw: rawData.filter(item => bestGroups.has(grouping.key(item)))
+    };
+}
+
+function splitRawRecordings(rawData, uniqueLabels) {
+    const grouping = chooseValidationGrouping(rawData);
+    const split = grouping.mode === 'recording'
+        ? splitByRecording(rawData, uniqueLabels)
+        : splitByMetadataGroup(rawData, uniqueLabels, grouping);
+    return { ...split, grouping };
+}
+
+function normalizeVisualSequence(visualFrames, recordingNumber) {
+    return visualFrames.map((frame, frameIndex) => {
+        let flattened = frame;
+        if (Array.isArray(frame) && frame.length === VISUAL_HEIGHT && Array.isArray(frame[0])) {
+            flattened = frame.flat();
+        }
+        if (!Array.isArray(flattened) || flattened.length !== VISUAL_FRAME_SIZE) {
+            throw new Error(
+                `Recording ${recordingNumber}, visual frame ${frameIndex + 1} must contain ${VISUAL_FRAME_SIZE} grayscale values.`
+            );
+        }
+        return flattened.map(value => {
+            if (!Number.isFinite(value)) {
+                throw new Error(`Recording ${recordingNumber}, visual frame ${frameIndex + 1} contains a non-numeric value.`);
+            }
+            return Math.max(0, Math.min(1, value > 1 ? value / 255 : value));
+        });
+    });
+}
+
+function buildPositionFrames(recording, modelFamily) {
+    let frames = sanitizeData(recording.frames);
+    if (modelFamily === 'asl') return normalizeAslFrames(frames);
+
+    // Legacy holistic clips were 30 frames. Resample before reducing them so old
+    // raw recordings can train the new 60-frame KSL architecture.
+    if (frames[0].length === LEGACY_HOLISTIC_FRAME_WIDTH && frames.length !== KSL_SEQUENCE_LENGTH) {
+        frames = resampleFrames(frames, KSL_SEQUENCE_LENGTH);
+    }
+    return normalizeKslPositionFrames(extractKslPositionFrames(frames));
+}
+
+function createVisualTensor(samples) {
+    const values = new Float32Array(samples.length * KSL_SEQUENCE_LENGTH * VISUAL_FRAME_SIZE);
+    let offset = 0;
+    samples.forEach(sample => sample.visual.forEach(frame => {
+        values.set(frame, offset);
+        offset += VISUAL_FRAME_SIZE;
+    }));
+    return tf.tensor5d(values, [
+        samples.length,
+        KSL_SEQUENCE_LENGTH,
+        VISUAL_HEIGHT,
+        VISUAL_WIDTH,
+        VISUAL_CHANNELS
+    ]);
+}
+
+function argMax(values) {
+    let bestIndex = 0;
+    for (let index = 1; index < values.length; index++) {
+        if (values[index] > values[bestIndex]) bestIndex = index;
+    }
+    return bestIndex;
+}
+
+async function evaluateValidation(model, modelInputs, samples, uniqueLabels) {
+    const predictionTensor = model.predict(modelInputs);
+    const probabilities = await predictionTensor.array();
+    predictionTensor.dispose();
+
+    const matrix = Array.from(
+        { length: uniqueLabels.length },
+        () => new Array(uniqueLabels.length).fill(0)
+    );
+    let correct = 0;
+    let confidenceTotal = 0;
+    probabilities.forEach((row, sampleIndex) => {
+        const predicted = argMax(row);
+        const actual = samples[sampleIndex].labelIndex;
+        matrix[actual][predicted]++;
+        confidenceTotal += row[predicted];
+        if (predicted === actual) correct++;
+    });
+
+    const perClass = uniqueLabels.map((label, classIndex) => {
+        const truePositive = matrix[classIndex][classIndex];
+        const actualCount = matrix[classIndex].reduce((sum, count) => sum + count, 0);
+        const predictedCount = matrix.reduce((sum, row) => sum + row[classIndex], 0);
+        const precision = predictedCount ? truePositive / predictedCount : 0;
+        const recall = actualCount ? truePositive / actualCount : 0;
+        const f1 = precision + recall ? (2 * precision * recall) / (precision + recall) : 0;
+        return { label, precision, recall, f1, support: actualCount };
+    });
+    const macroF1 = perClass.reduce((sum, item) => sum + item.f1, 0) / perClass.length;
+    const balancedAccuracy = perClass.reduce((sum, item) => sum + item.recall, 0) / perClass.length;
+    const confusions = [];
+    matrix.forEach((row, actualIndex) => row.forEach((count, predictedIndex) => {
+        if (actualIndex !== predictedIndex && count > 0) {
+            confusions.push({
+                actual: uniqueLabels[actualIndex],
+                predicted: uniqueLabels[predictedIndex],
+                count
+            });
+        }
+    }));
+    confusions.sort((a, b) => b.count - a.count);
+
+    return {
+        accuracy: correct / samples.length,
+        balancedAccuracy,
+        macroF1,
+        averageConfidence: confidenceTotal / samples.length,
+        matrix,
+        perClass,
+        confusions
+    };
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
+function formatPercent(value) {
+    return `${(value * 100).toFixed(1)}%`;
+}
+
+function renderEvaluationReport(evaluation, uniqueLabels, grouping, usesHandCrops) {
+    const report = document.getElementById('evaluationReport');
+    if (!report) return;
+    const confusionSummary = evaluation.confusions.length
+        ? evaluation.confusions.slice(0, 8).map(item =>
+            `<li><strong>${escapeHtml(item.actual)}</strong> predicted as <strong>${escapeHtml(item.predicted)}</strong>: ${item.count}</li>`
+        ).join('')
+        : '<li>No mistakes in this validation split. Test with an unseen signer before trusting this result.</li>';
+    const rows = evaluation.perClass.map(item => `
+        <tr>
+            <td>${escapeHtml(item.label)}</td>
+            <td>${item.support}</td>
+            <td>${formatPercent(item.precision)}</td>
+            <td>${formatPercent(item.recall)}</td>
+            <td>${formatPercent(item.f1)}</td>
+        </tr>
+    `).join('');
+    const matrixHeader = uniqueLabels.map(label => `<th>${escapeHtml(label)}</th>`).join('');
+    const matrixRows = evaluation.matrix.map((matrixRow, actualIndex) => `
+        <tr>
+            <th>${escapeHtml(uniqueLabels[actualIndex])}</th>
+            ${matrixRow.map((count, predictedIndex) =>
+                `<td class="${actualIndex === predictedIndex ? 'matrix-hit' : (count ? 'matrix-miss' : '')}">${count}</td>`
+            ).join('')}
+        </tr>
+    `).join('');
+    const warning = grouping.warning
+        ? `<p class="trainer-warning">${escapeHtml(grouping.warning)}</p>`
+        : '<p class="trainer-success">Validation signers were fully held out from training.</p>';
+
+    report.hidden = false;
+    report.innerHTML = `
+        <h2>Raw validation report</h2>
+        <div class="metric-grid">
+            <div><span>Accuracy</span><strong>${formatPercent(evaluation.accuracy)}</strong></div>
+            <div><span>Balanced accuracy</span><strong>${formatPercent(evaluation.balancedAccuracy)}</strong></div>
+            <div><span>Macro F1</span><strong>${formatPercent(evaluation.macroF1)}</strong></div>
+            <div><span>Average confidence</span><strong>${formatPercent(evaluation.averageConfidence)}</strong></div>
+        </div>
+        <p class="trainer-note">Split by ${escapeHtml(grouping.mode)}. Hand-crop stream: ${usesHandCrops ? 'enabled' : 'disabled'}.</p>
+        ${warning}
+        <h3>Most common confusions</h3>
+        <ul class="confusion-list">${confusionSummary}</ul>
+        <div class="table-scroll">
+            <table class="metrics-table">
+                <thead><tr><th>Class</th><th>Raw clips</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+        <details class="matrix-details">
+            <summary>Full confusion matrix (rows are actual, columns are predicted)</summary>
+            <div class="table-scroll">
+                <table class="metrics-table confusion-matrix">
+                    <thead><tr><th>Actual / predicted</th>${matrixHeader}</tr></thead>
+                    <tbody>${matrixRows}</tbody>
+                </table>
+            </div>
+        </details>
+    `;
+}
+
+function triggerJsonDownload(filename, data) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
 }
 
 // ==========================================
 // TRAINING PIPELINE
 // ==========================================
+
 async function startTraining() {
     const fileInput = document.getElementById('fileInput');
     const statusText = document.getElementById('status');
+    const report = document.getElementById('evaluationReport');
     const modelFamily = document.getElementById('modelFamily')?.value || 'csl';
+    const isAsl = modelFamily === 'asl';
+    const sequenceLength = getSequenceLength(modelFamily);
+    const subModelName = document.getElementById('subModelName')?.value.trim() || '';
+    const usingSubModel = !isAsl && subModelName.length > 0;
 
-    // --- Sub-model naming: look for an optional #subModelName text input. ---
-    // If present and non-blank, exported files are prefixed with this name and
-    // registry-compatible filenames are used. Falls back to default naming otherwise.
-    const subModelNameInput = document.getElementById('subModelName');
-    const subModelName = subModelNameInput ? subModelNameInput.value.trim() : "";
-    const usingSubModel = modelFamily === 'csl' && subModelName.length > 0;
-
-    if (fileInput.files.length === 0) {
-        alert("Please upload your JSON files first!");
+    if (report) report.hidden = true;
+    if (!fileInput.files.length) {
+        alert('Please upload your JSON files first.');
         return;
     }
 
-    statusText.innerText = "Step 1: Reading, sanitizing, normalizing, and augmenting files...";
-    // Yield to browser to let UI update before heavy work
-    await new Promise(r => setTimeout(r, 50));
-    
-    let rawData = [];
+    statusText.textContent = 'Step 1: validating raw recordings and metadata...';
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    const rawData = [];
     let uniqueLabels;
-    let expectedDataWidth = null;
+    let sourceFrameWidth = null;
+    let usesHandCrops = false;
+    let visualFallbackMessage = '';
 
     try {
-        for (let file of fileInput.files) {
-            const text = await file.text();
-            rawData.push(JSON.parse(text));
+        for (const file of fileInput.files) {
+            const recording = JSON.parse(await file.text());
+            recording._sourceName = file.name;
+            rawData.push(recording);
         }
 
         rawData.forEach((item, recordingIndex) => {
-            if (typeof item.label !== 'string' || item.label.trim() === '') {
-                throw new Error(`Recording ${recordingIndex + 1} is missing a valid label.`);
+            const number = recordingIndex + 1;
+            if (typeof item.label !== 'string' || !item.label.trim()) {
+                throw new Error(`Recording ${number} is missing a valid label.`);
             }
-            if (!Array.isArray(item.frames) || item.frames.length !== SEQUENCE_LENGTH) {
-                throw new Error(`Recording ${recordingIndex + 1} must contain exactly ${SEQUENCE_LENGTH} frames.`);
+            item.label = item.label.trim();
+            if (!Array.isArray(item.frames) || item.frames.length === 0) {
+                throw new Error(`Recording ${number} has no landmark frames.`);
             }
 
+            const width = item.frames[0]?.length;
+            const validWidths = isAsl
+                ? [ASL_FRAME_WIDTH]
+                : [KSL_RAW_FRAME_WIDTH, LEGACY_HOLISTIC_FRAME_WIDTH];
+            if (!validWidths.includes(width)) {
+                throw new Error(
+                    `${isAsl ? 'ASL' : 'KSL'} recording ${number} has ${width || 0} values per frame; expected ${validWidths.join(' or ')}.`
+                );
+            }
+            if (sourceFrameWidth === null) sourceFrameWidth = width;
+            if (width !== sourceFrameWidth) {
+                throw new Error('Do not mix 150-value and legacy 225-value KSL recordings in one training run.');
+            }
+
+            const allowedFrameCounts = !isAsl && width === LEGACY_HOLISTIC_FRAME_WIDTH
+                ? [ASL_SEQUENCE_LENGTH, KSL_SEQUENCE_LENGTH]
+                : [sequenceLength];
+            if (!allowedFrameCounts.includes(item.frames.length)) {
+                throw new Error(
+                    `Recording ${number} has ${item.frames.length} frames; expected ${allowedFrameCounts.join(' or ')}.`
+                );
+            }
             item.frames.forEach((frame, frameIndex) => {
-                if (!Array.isArray(frame) || ![63, 225].includes(frame.length)) {
-                    throw new Error(`Recording ${recordingIndex + 1}, frame ${frameIndex + 1} must contain 63 or 225 numeric values.`);
-                }
-                if (expectedDataWidth === null) expectedDataWidth = frame.length;
-                if (frame.length !== expectedDataWidth) {
-                    throw new Error("Do not mix one-hand (63-value) and holistic (225-value) recordings in one training run.");
-                }
-                if (frame.some(value => !Number.isFinite(value))) {
-                    throw new Error(`Recording ${recordingIndex + 1}, frame ${frameIndex + 1} contains a non-numeric value.`);
+                if (!Array.isArray(frame) || frame.length !== width || frame.some(value => !Number.isFinite(value))) {
+                    throw new Error(`Recording ${number}, frame ${frameIndex + 1} has an invalid landmark layout.`);
                 }
             });
-        });
 
-        const requiredDataWidth = modelFamily === 'asl' ? 63 : 225;
-        if (expectedDataWidth !== requiredDataWidth) {
-            throw new Error(`${modelFamily.toUpperCase()} training requires ${requiredDataWidth} values per frame. Choose the matching recorder mode or model family.`);
-        }
+            if (!isAsl && width === KSL_RAW_FRAME_WIDTH) {
+                if (item.schemaVersion !== KSL_SCHEMA_VERSION) {
+                    throw new Error(`Recording ${number} must declare schemaVersion "${KSL_SCHEMA_VERSION}".`);
+                }
+                if (item.frameCount !== KSL_SEQUENCE_LENGTH || item.rawFrameWidth !== KSL_RAW_FRAME_WIDTH) {
+                    throw new Error(
+                        `Recording ${number} metadata must declare frameCount ${KSL_SEQUENCE_LENGTH} and rawFrameWidth ${KSL_RAW_FRAME_WIDTH}.`
+                    );
+                }
+            }
+        });
 
         uniqueLabels = [...new Set(rawData.map(item => item.label))].sort();
         if (uniqueLabels.length < 2) {
-            throw new Error("TCN training requires recordings from at least two classes.");
+            throw new Error('Training requires recordings from at least two classes.');
+        }
+
+        const rawCountsByLabel = Object.fromEntries(uniqueLabels.map(label => [label, 0]));
+        rawData.forEach(item => rawCountsByLabel[item.label]++);
+        const undersupplied = Object.entries(rawCountsByLabel)
+            .filter(([, count]) => count < MIN_RAW_RECORDINGS_PER_CLASS);
+        if (undersupplied.length) {
+            throw new Error(
+                `At least ${MIN_RAW_RECORDINGS_PER_CLASS} raw recordings per class are required. Missing: ` +
+                undersupplied.map(([label, count]) => `${label} (${count})`).join(', ')
+            );
+        }
+
+        if (!isAsl) {
+            const recordingsWithCrops = rawData.filter(item => Array.isArray(item.visualFrames));
+            usesHandCrops = recordingsWithCrops.length === rawData.length;
+            if (usesHandCrops) {
+                rawData.forEach((item, recordingIndex) => {
+                    if (item.visualFrames.length !== KSL_SEQUENCE_LENGTH) {
+                        throw new Error(`Recording ${recordingIndex + 1} must contain ${KSL_SEQUENCE_LENGTH} visualFrames.`);
+                    }
+                    if (item.visualShape && JSON.stringify(item.visualShape) !== JSON.stringify([VISUAL_HEIGHT, VISUAL_WIDTH, VISUAL_CHANNELS])) {
+                        throw new Error(`Recording ${recordingIndex + 1} visualShape must be [${VISUAL_HEIGHT}, ${VISUAL_WIDTH}, ${VISUAL_CHANNELS}].`);
+                    }
+                    item._normalizedVisualFrames = normalizeVisualSequence(item.visualFrames, recordingIndex + 1);
+                });
+            } else if (recordingsWithCrops.length > 0) {
+                visualFallbackMessage = `${recordingsWithCrops.length}/${rawData.length} recordings contain hand crops, so this run is landmark-only. Every recording must contain crops to enable fusion.`;
+                console.warn(visualFallbackMessage);
+            } else {
+                visualFallbackMessage = 'No visualFrames found; this run is landmark-only.';
+            }
         }
     } catch (error) {
-        console.error("Unable to prepare training data:", error);
-        statusText.innerText = `Training stopped: ${error.message}`;
+        console.error('Unable to prepare training data:', error);
+        statusText.textContent = `Training stopped: ${error.message}`;
         alert(error.message);
         return;
     }
 
-    console.log("Found classes:", uniqueLabels);
-
-    // --- Per-class raw recording counts (imbalance visibility + class weighting) ---
-    const rawCountsByLabel = {};
-    uniqueLabels.forEach(l => rawCountsByLabel[l] = 0);
-    rawData.forEach(item => rawCountsByLabel[item.label]++);
-    console.log("Raw recordings per class:", rawCountsByLabel);
-
-    const counts = Object.values(rawCountsByLabel);
-    const maxCount = Math.max(...counts), minCount = Math.min(...counts);
-    if (maxCount > minCount * 3) {
-        const maxLabel = Object.keys(rawCountsByLabel).find(k => rawCountsByLabel[k] === maxCount);
-        const minLabel = Object.keys(rawCountsByLabel).find(k => rawCountsByLabel[k] === minCount);
-        console.warn(`⚠️ Class imbalance: "${maxLabel}" has ${maxCount} recordings vs "${minLabel}" with only ${minCount}. Balanced resampling below will help, but recording more of the underrepresented classes is the real fix.`);
+    let trainRaw;
+    let valRaw;
+    let grouping;
+    try {
+        ({ trainRaw, valRaw, grouping } = splitRawRecordings(rawData, uniqueLabels));
+    } catch (error) {
+        statusText.textContent = `Training stopped: ${error.message}`;
+        alert(error.message);
+        return;
     }
-
-    statusText.innerText = `Found ${uniqueLabels.length} classes: ${uniqueLabels.join(", ")}. Splitting train/val by raw recording (before augmentation) to avoid leakage...`;
-    await new Promise(r => setTimeout(r, 50));
-
-    // --- Split RAW recordings into train/val FIRST, stratified per class ---
-    // Augmenting before splitting would let near-duplicate augmented variants (jitter/
-    // mirror/time-warp) of the SAME original recording land on both sides of the split,
-    // so validation accuracy quietly measures memorization instead of generalization.
-    const rawByLabel = {};
-    uniqueLabels.forEach(l => rawByLabel[l] = []);
-    rawData.forEach(item => rawByLabel[item.label].push(item));
-
-    const trainRaw = [];
-    const valRaw = [];
-    for (const label of uniqueLabels) {
-        const items = rawByLabel[label];
-        // Shuffle within this class only
-        for (let i = items.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [items[i], items[j]] = [items[j], items[i]];
-        }
-        const splitIdx = Math.max(1, Math.floor(items.length * 0.8));
-        trainRaw.push(...items.slice(0, splitIdx));
-        if (items.length > 1) {
-            valRaw.push(...items.slice(splitIdx));
-        } else {
-            console.warn(`Only 1 recording found for class "${label}" — none can be held out for validation. Record at least 2 (ideally more) per class.`);
-        }
+    if (!isAsl && grouping.mode === 'recording') {
+        const message =
+            'KSL training requires at least two signer IDs or two session IDs, with every label represented in both groups. ' +
+            'A recording-only split would recreate the misleading 100% validation result this pipeline is designed to prevent.';
+        statusText.textContent = `Training stopped: ${message}`;
+        alert(message);
+        return;
     }
+    if (grouping.warning) console.warn(grouping.warning);
 
-    statusText.innerText = `Train recordings: ${trainRaw.length}, Val recordings: ${valRaw.length}. Augmenting...`;
-    await new Promise(r => setTimeout(r, 50));
+    statusText.textContent =
+        `Split by ${grouping.mode}: ${trainRaw.length} train / ${valRaw.length} raw validation clips. ` +
+        (usesHandCrops ? 'Two-hand crop fusion enabled.' : visualFallbackMessage);
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-    function buildSamples(items) {
+    function buildSamples(items, augment) {
         const samples = [];
         items.forEach(item => {
-            const cleanedFrames = sanitizeData(item.frames);
-            const normalizedFrames = normalizeFrames(cleanedFrames);
+            const positions = buildPositionFrames(item, modelFamily);
+            const visualFrames = usesHandCrops ? item._normalizedVisualFrames : null;
             const labelIndex = uniqueLabels.indexOf(item.label);
-            const augmented = augmentSample(normalizedFrames, item.label, labelIndex, uniqueLabels.length);
-            samples.push(...augmented);
+            if (augment) {
+                samples.push(...augmentSample(
+                    positions,
+                    visualFrames,
+                    labelIndex,
+                    uniqueLabels.length,
+                    modelFamily
+                ));
+            } else {
+                // Validation is one untouched feature sequence per raw recording.
+                samples.push(createSample(
+                    positions,
+                    visualFrames,
+                    labelIndex,
+                    uniqueLabels.length,
+                    modelFamily,
+                    0
+                ));
+            }
         });
         return samples;
     }
 
-    const unbalancedTrainSamples = buildSamples(trainRaw);
+    const unbalancedTrainSamples = buildSamples(trainRaw, true);
     const trainSamples = balanceTrainingSamples(unbalancedTrainSamples, uniqueLabels.length);
-    const valSamples = buildSamples(valRaw);
-
-    console.log(`Augmented — Train before balancing: ${unbalancedTrainSamples.length}, after balancing: ${trainSamples.length} (from ${trainRaw.length} originals) | Val: ${valSamples.length} (from ${valRaw.length} originals)`);
-    statusText.innerText = `Augmented and balanced: train=${trainSamples.length}, val=${valSamples.length}. Shuffling...`;
-    await new Promise(r => setTimeout(r, 50));
-
-    // Shuffle each split independently — order only, splits never mix
-    function shuffleInPlace(arr) {
-        for (let i = arr.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [arr[i], arr[j]] = [arr[j], arr[i]];
-        }
-    }
+    const valSamples = buildSamples(valRaw, false);
     shuffleInPlace(trainSamples);
-    shuffleInPlace(valSamples);
 
-    if (valSamples.length === 0) {
-        alert("No validation samples available — every class only had 1 raw recording. Record at least 2 samples per class so training can measure real accuracy.");
+    console.log(
+        `Training: ${trainSamples.length} augmented/balanced samples from ${trainRaw.length} raw clips. ` +
+        `Validation: ${valSamples.length} unaugmented raw clips.`
+    );
+    const xsTrain = tf.tensor3d(trainSamples.map(sample => sample.feature));
+    const ysTrain = tf.tensor2d(trainSamples.map(sample => sample.label));
+    const xsVal = tf.tensor3d(valSamples.map(sample => sample.feature));
+    const ysVal = tf.tensor2d(valSamples.map(sample => sample.label));
+    const visualTrain = usesHandCrops ? createVisualTensor(trainSamples) : null;
+    const visualVal = usesHandCrops ? createVisualTensor(valSamples) : null;
+    const trainInputs = usesHandCrops ? [xsTrain, visualTrain] : xsTrain;
+    const valInputs = usesHandCrops ? [xsVal, visualVal] : xsVal;
+
+    statusText.textContent = isAsl
+        ? `Step 2: building legacy ASL TCN (${ASL_SEQUENCE_LENGTH} x ${ASL_FRAME_WIDTH})...`
+        : `Step 2: building graph-TCN (${KSL_SEQUENCE_LENGTH} x ${KSL_MODEL_FRAME_WIDTH})${usesHandCrops ? ' with hand-crop fusion' : ''}...`;
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    let model;
+    try {
+        model = isAsl
+            ? buildAslTcnClassifier(uniqueLabels.length)
+            : buildKslGraphTcnClassifier(uniqueLabels.length, usesHandCrops);
+    } catch (error) {
+        [xsTrain, ysTrain, xsVal, ysVal, visualTrain, visualVal]
+            .filter(Boolean)
+            .forEach(tensor => tensor.dispose());
+        statusText.textContent = `Training stopped: ${error.message}`;
+        alert(error.message);
+        return;
     }
-
-    console.log(`Train: ${trainSamples.length} | Val: ${valSamples.length}`);
-
-    const xsTrain = tf.tensor3d(trainSamples.map(s => s.feature));
-    const ysTrain = tf.tensor2d(trainSamples.map(s => s.label));
-    const xsVal = valSamples.length > 0 ? tf.tensor3d(valSamples.map(s => s.feature)) : null;
-    const ysVal = valSamples.length > 0 ? tf.tensor2d(valSamples.map(s => s.label)) : null;
-
-    const dataWidth = trainSamples[0].feature[0].length; 
-    console.log(`Auto-detected data width: ${dataWidth} points per frame.`);
-
-    statusText.innerText = `Step 2: Building TCN Architecture (${dataWidth}-point mode, ${trainSamples.length + valSamples.length} samples)...`;
-    await new Promise(r => setTimeout(r, 50));
-
-    const model = buildTcnClassifier(dataWidth, uniqueLabels.length);
 
     model.compile({
         optimizer: tf.train.adam(0.001),
-        loss: 'categoricalCrossentropy',
+        loss: isAsl ? 'categoricalCrossentropy' : focalCategoricalCrossentropy,
         metrics: ['accuracy']
     });
-
     model.summary();
 
-    statusText.innerText = `Step 3: Training... train=${trainSamples.length}, val=${valSamples.length}. Check F12!`;
-    await new Promise(r => setTimeout(r, 50));
-    
+    statusText.textContent = `Step 3: training on ${trainRaw.length} raw clips; validating on ${valRaw.length} untouched clips...`;
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     let bestValAcc = 0;
     let bestValLoss = Infinity;
     let bestWeights = null;
     let epochsSinceImprovement = 0;
-    const PATIENCE = 12; // stop if val_loss hasn't improved in this many epochs
-    let stopRequested = false;
+    const patience = 12;
 
-    await model.fit(xsTrain, ysTrain, {
-        epochs: 80,
-        batchSize: 16,
-        validationData: xsVal ? [xsVal, ysVal] : undefined,
-        callbacks: {
-            onEpochEnd: async (epoch, logs) => {
-                const acc = (logs.acc * 100).toFixed(1);
-                const hasVal = logs.val_acc !== undefined;
-                const valAcc = hasVal ? (logs.val_acc * 100).toFixed(1) + "%" : "N/A";
-                if (hasVal && logs.val_acc > bestValAcc) bestValAcc = logs.val_acc;
+    try {
+        await model.fit(trainInputs, ysTrain, {
+            epochs: 80,
+            batchSize: usesHandCrops ? 8 : 16,
+            validationData: [valInputs, ysVal],
+            callbacks: {
+                onEpochEnd: async (epoch, logs) => {
+                    const accuracy = logs.acc ?? logs.accuracy ?? 0;
+                    const validationAccuracy = logs.val_acc ?? logs.val_accuracy ?? 0;
+                    bestValAcc = Math.max(bestValAcc, validationAccuracy);
 
-                // --- Manual early stopping + best-weights checkpoint ---
-                // Watching val_loss (not val_acc) since accuracy pins at 100% long before
-                // loss stops improving on a small/homogeneous dataset — loss is the more
-                // sensitive signal for catching the point where it starts overfitting.
-                if (hasVal) {
                     if (logs.val_loss < bestValLoss - 1e-4) {
                         bestValLoss = logs.val_loss;
                         epochsSinceImprovement = 0;
-                        // Snapshot current weights as the best-so-far
-                        if (bestWeights) bestWeights.forEach(t => t.dispose());
-                        bestWeights = model.getWeights().map(t => t.clone());
+                        if (bestWeights) bestWeights.forEach(tensor => tensor.dispose());
+                        bestWeights = model.getWeights().map(tensor => tensor.clone());
                     } else {
                         epochsSinceImprovement++;
                     }
-                    if (epochsSinceImprovement >= PATIENCE) {
-                        stopRequested = true;
-                        model.stopTraining = true;
-                    }
+                    if (epochsSinceImprovement >= patience) model.stopTraining = true;
+
+                    console.log(
+                        `Epoch ${epoch + 1}/80 | loss ${logs.loss.toFixed(4)} | ` +
+                        `acc ${formatPercent(accuracy)} | val loss ${logs.val_loss.toFixed(4)} | ` +
+                        `val acc ${formatPercent(validationAccuracy)}`
+                    );
+                    statusText.textContent = epochsSinceImprovement >= patience
+                        ? 'Early stopping: restoring the lowest-validation-loss checkpoint...'
+                        : `Epoch ${epoch + 1}/80 | train ${formatPercent(accuracy)} | raw validation ${formatPercent(validationAccuracy)} | best ${formatPercent(bestValAcc)}`;
+                    await new Promise(resolve => setTimeout(resolve, 0));
                 }
-
-                console.log(`Epoch ${epoch + 1}/80 | Loss: ${logs.loss.toFixed(4)} | Acc: ${acc}% | Val Acc: ${valAcc} | Val Loss: ${hasVal ? logs.val_loss.toFixed(4) : "N/A"}`);
-                statusText.innerText = stopRequested
-                    ? `Early stopping (val loss stalled) — restoring best epoch...`
-                    : `Epoch ${epoch + 1}/80 | Acc: ${acc}% | Val: ${valAcc} | Best Val Acc: ${(bestValAcc * 100).toFixed(1)}%`;
-                // Yield so the UI can refresh
-                await new Promise(r => setTimeout(r, 0));
             }
+        });
+
+        if (bestWeights) {
+            model.setWeights(bestWeights);
+            bestWeights.forEach(tensor => tensor.dispose());
+            bestWeights = null;
         }
-    });
 
-    // Restore the best-validation-loss checkpoint instead of whatever the last epoch left us with
-    if (bestWeights) {
-        model.setWeights(bestWeights);
-        bestWeights.forEach(t => t.dispose());
-        statusText.innerText = `Restored best checkpoint (val loss: ${bestValLoss.toFixed(4)}). Finalizing...`;
-        await new Promise(r => setTimeout(r, 50));
-    } else if (!xsVal) {
-        console.warn("No validation set — couldn't checkpoint on val_loss, using final-epoch weights as-is. Results are unverified.");
-    }
+        statusText.textContent = 'Evaluating per-class precision, recall, F1, and confusions...';
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const evaluation = await evaluateValidation(model, valInputs, valSamples, uniqueLabels);
+        renderEvaluationReport(evaluation, uniqueLabels, grouping, usesHandCrops);
 
-    // Cleanup tensors
-    xsTrain.dispose(); ysTrain.dispose();
-    if (xsVal) { xsVal.dispose(); ysVal.dispose(); }
+        const modelExportName = isAsl
+            ? 'asl-model'
+            : (usingSubModel ? `${subModelName}_model` : 'csl_model');
+        const labelsExportName = isAsl
+            ? 'asl-labels.json'
+            : (usingSubModel ? `${subModelName}_labels.json` : 'csl_labels.json');
+        const metadataExportName = `${modelExportName}_metadata.json`;
+        const metadata = {
+            schemaVersion: isAsl ? 'asl-legacy-v1' : KSL_SCHEMA_VERSION,
+            rawFrameWidth: isAsl ? ASL_FRAME_WIDTH : KSL_RAW_FRAME_WIDTH,
+            modelFrameWidth: isAsl ? ASL_FRAME_WIDTH : KSL_MODEL_FRAME_WIDTH,
+            frameCount: sequenceLength,
+            architecture: isAsl
+                ? 'legacy-tcn'
+                : (usesHandCrops ? 'graph-edge-tcn-late-hand-crop-fusion' : 'graph-edge-tcn'),
+            usesHandCrops,
+            visualShape: usesHandCrops ? [VISUAL_HEIGHT, VISUAL_WIDTH, VISUAL_CHANNELS] : null,
+            validationGroup: grouping.mode,
+            labels: uniqueLabels,
+            acceptedSourceFrameWidths: isAsl
+                ? [ASL_FRAME_WIDTH]
+                : [KSL_RAW_FRAME_WIDTH, LEGACY_HOLISTIC_FRAME_WIDTH],
+            trainingSourceFrameWidth: sourceFrameWidth,
+            layoutId: isAsl ? 'hand21_xyz' : 'upper8_hands2x21_xyz',
+            normalization: isAsl
+                ? 'wrist-relative'
+                : 'shoulder-midpoint-relative_shoulder-width-scaled',
+            kslNodeOrder: isAsl ? null : {
+                pose: KSL_BODY_POSE_INDICES,
+                leftHand: '0..20',
+                rightHand: '0..20'
+            },
+            featureChannels: isAsl
+                ? ['x', 'y', 'z']
+                : ['node_xyz', 'node_velocity_xyz', 'node_acceleration_xyz', 'graph_edge_dx_dy_dz_distance', 'left_right_hand_presence'],
+            trainingLoss: isAsl
+                ? 'categorical-crossentropy-with-label-smoothing-0.04'
+                : 'focal-categorical-crossentropy-gamma-2-with-label-smoothing-0.04',
+            trainedAt: new Date().toISOString()
+        };
 
-    statusText.innerText = `Step 4: Training Complete! Best Val Acc: ${(bestValAcc * 100).toFixed(1)}%. Downloading files...`;
+        statusText.textContent = `Step 4: complete. Raw validation accuracy ${formatPercent(evaluation.accuracy)}, macro F1 ${formatPercent(evaluation.macroF1)}. Downloading files...`;
+        await model.save(`downloads://${modelExportName}`);
+        await new Promise(resolve => setTimeout(resolve, 800));
+        triggerJsonDownload(labelsExportName, uniqueLabels);
+        await new Promise(resolve => setTimeout(resolve, 800));
+        triggerJsonDownload(metadataExportName, metadata);
 
-    // --- Dynamic export naming ---
-    // Match the exact filenames already loaded by script.js. CSL sub-models keep
-    // their registry-compatible prefix when a sub-model name was provided.
-    const modelExportName = modelFamily === 'asl'
-        ? "asl-model"
-        : (usingSubModel ? `${subModelName}_model` : "csl_model");
-    const labelsExportName = modelFamily === 'asl'
-        ? "asl-labels.json"
-        : (usingSubModel ? `${subModelName}_labels.json` : "csl_labels.json");
-
-    // 1. Save model files (TFJS writes ${modelExportName}.json + ${modelExportName}.weights.bin)
-    await model.save(`downloads://${modelExportName}`);
-
-    // Wait to bypass browser download spam blocker
-    await new Promise(r => setTimeout(r, 1000));
-
-    // 2. Save labels
-    const blob = new Blob([JSON.stringify(uniqueLabels)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = labelsExportName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-
-    if (modelFamily === 'asl') {
-        statusText.innerText = `✅ Done! ASL TCN — ${uniqueLabels.length} classes, ` +
-            `best val accuracy: ${(bestValAcc * 100).toFixed(1)}%. Replace the existing ASL model files with these downloads.`;
-    } else if (usingSubModel) {
-        statusText.innerText = `✅ Done! Sub-model "${subModelName}" — ${uniqueLabels.length} classes, ` +
-            `best val accuracy: ${(bestValAcc * 100).toFixed(1)}%. ` +
-            `Add "${subModelName}": { "model": "./${modelExportName}.json", "labels": "./${labelsExportName}" } ` +
-            `to submodel-registry.json under the matching handshape_zone key to activate it.`;
-    } else {
-        statusText.innerText = `✅ Done! ${uniqueLabels.length} classes, best val accuracy: ${(bestValAcc * 100).toFixed(1)}%`;
+        statusText.textContent =
+            `Done: ${uniqueLabels.length} classes, raw validation ${formatPercent(evaluation.accuracy)}, ` +
+            `macro F1 ${formatPercent(evaluation.macroF1)}. ` +
+            (grouping.warning || 'Validation used unseen signers.') +
+            (usesHandCrops ? ' Two-hand crop fusion is enabled.' : ` ${visualFallbackMessage}`);
+    } catch (error) {
+        console.error('Training failed:', error);
+        if (bestWeights) bestWeights.forEach(tensor => tensor.dispose());
+        statusText.textContent = `Training failed: ${error.message}`;
+        alert(error.message);
+    } finally {
+        [xsTrain, ysTrain, xsVal, ysVal, visualTrain, visualVal]
+            .filter(Boolean)
+            .forEach(tensor => tensor.dispose());
     }
 }

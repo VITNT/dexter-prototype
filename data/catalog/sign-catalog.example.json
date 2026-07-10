@@ -35,6 +35,37 @@
           "offset": 0
         }
       ]
+    },
+    "upper8_hands2x21_xyz": {
+      "frameWidth": 150,
+      "schemaVersion": "ksl-landmarks-v2",
+      "parts": [
+        {
+          "name": "upper_body",
+          "sourcePoseIndices": [11, 12, 13, 14, 15, 16, 23, 24],
+          "landmarks": 8,
+          "valuesPerLandmark": 3,
+          "offset": 0
+        },
+        {
+          "name": "left_hand",
+          "landmarks": 21,
+          "valuesPerLandmark": 3,
+          "offset": 24
+        },
+        {
+          "name": "right_hand",
+          "landmarks": 21,
+          "valuesPerLandmark": 3,
+          "offset": 87
+        }
+      ]
+    },
+    "ksl_graph_features_v2": {
+      "frameWidth": 700,
+      "schemaVersion": "ksl-landmarks-v2",
+      "derivedFrom": "upper8_hands2x21_xyz",
+      "description": "Position, velocity, acceleration, 62 spatial graph relations, and two hand-presence flags."
     }
   },
   "languages": [
@@ -46,9 +77,9 @@
         {
           "id": "asl-isolated-tcn-v1",
           "task": "isolated_sign_recognition",
-          "modelPath": "models/asl/isolated-tcn-v1/model.json",
-          "labelsPath": "models/asl/isolated-tcn-v1/labels.json",
-          "landmarkLayout": "pose33_hands2x21_xyz",
+          "modelPath": "asl-model.json",
+          "labelsPath": "asl-labels.json",
+          "landmarkLayout": "hand21_xyz",
           "frameCount": 30,
           "fps": 15
         }
@@ -80,17 +111,19 @@
     },
     {
       "id": "csl",
-      "name": "CSL",
+      "name": "KSL (Khmer/Cambodian Sign Language)",
       "defaultTargetLanguage": "km",
       "models": [
         {
-          "id": "csl-isolated-tcn-v1",
+          "id": "ksl-isolated-graph-tcn-v2",
           "task": "isolated_sign_recognition",
-          "modelPath": "models/csl/isolated-tcn-v1/model.json",
-          "labelsPath": "models/csl/isolated-tcn-v1/labels.json",
-          "landmarkLayout": "pose33_hands2x21_xyz",
-          "frameCount": 30,
-          "fps": 15
+          "modelPath": "csl_model.json",
+          "labelsPath": "csl_labels.json",
+          "metadataPath": "csl_model_metadata.json",
+          "landmarkLayout": "upper8_hands2x21_xyz",
+          "modelFrameWidth": 700,
+          "frameCount": 60,
+          "fps": 30
         }
       ],
       "signs": [
@@ -112,8 +145,8 @@
               "keypointsPath": "data/keypoints/csl/thank_you/signer001-001.json",
               "split": "validation",
               "fps": 15,
-              "frameCount": 30,
-              "landmarkLayout": "pose33_hands2x21_xyz",
+              "frameCount": 60,
+              "landmarkLayout": "upper8_hands2x21_xyz",
               "notes": "Placeholder sample entry. Replace with real consented data."
             }
           ]
