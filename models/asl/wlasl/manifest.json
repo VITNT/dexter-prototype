@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "format": "tfjs_layers",
+  "subset": "WLASL100",
+  "modelPath": "models/asl/wlasl/model.json",
+  "labelsPath": "models/asl/wlasl/labels.json",
+  "frameCount": 64,
+  "imageSize": 224,
+  "inputLayout": "NTHWC",
+  "normalization": "minus_one_to_one",
+  "clipDurationMs": 2500,
+  "confidenceThreshold": 0.5
+}
+
