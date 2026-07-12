@@ -6,6 +6,11 @@ import {
     createKslHandSlotState,
     prepareKslSequence
 } from "./src/pipeline/ksl_feature_pipeline.mjs";
+import {
+    normalizeRgbBytes,
+    uniformSampleIndices,
+    validateWlaslManifest
+} from "./src/pipeline/wlasl_video_pipeline.mjs";
 
 // skip drawing skeletons on phones — they can't handle it
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -34,6 +39,14 @@ let poseTracker;
 // We retain the historical `csl` filenames for compatibility with existing
 // Cambodian/Khmer assets while presenting the language as KSL in the UI.
 let aslModel, aslWordModel, cslModel;
+let wlaslModel = null;
+let wlaslConfig = null;
+let wlaslBackendReady = false;
+let wlaslRecorder = null;
+let wlaslRecorderChunks = [];
+let wlaslCaptureTimer = null;
+let wlaslRequestInFlight = false;
+let wlaslCaptureGeneration = 0;
 let aslModelMetadata = null;
 let aslWordModelMetadata = null;
 let cslModelMetadata = null;
@@ -58,6 +71,8 @@ let routingDebug = { handshape: "unknown", zone: "neutral", routeKey: null, matc
 let motionBuffer = [];
 let handCropBuffer = [];
 let motionTimestampBuffer = [];
+let wlaslFrameBuffer = [];
+let lastWlaslInferenceAt = 0;
 let accumulatedWord = "";
 let actionCooldown = 0;
 let previousVideoTime = -1;
@@ -66,6 +81,13 @@ const KSL_REQUIRED_FRAMES = KSL_FEATURE_SCHEMA.targetFrameCount;
 const REQUIRED_FRAMES = LEGACY_REQUIRED_FRAMES;
 const COOLDOWN_DURATION_MS = 1500;
 const CONFIDENCE_THRESHOLD = 0.90;
+const WLASL_API_URL = 'http://127.0.0.1:8001';
+const WLASL_CLIP_WINDOW_MS = 1800;
+const WLASL_WORD_COOLDOWN_MS = 300;
+const WLASL_BACKEND_CONFIDENCE = 0.55;
+
+const wlaslCaptureCanvas = document.createElement('canvas');
+const wlaslCaptureContext = wlaslCaptureCanvas.getContext('2d', { willReadFrequently: true });
 
 // how many frames in a row the same sign has been detected
 let dynamicSignStreak = 0;
@@ -204,16 +226,38 @@ async function initializeMediaPipe() {
     }
 
     try {
-        const aslWordResponse = await fetch('./asl_word_labels.json');
-        if (aslWordResponse.ok) {
-            aslWordVocab = await aslWordResponse.json();
-            aslWordModel = await tf.loadLayersModel('./asl_word_model.json');
-            aslWordModelMetadata = await loadOptionalJson('./asl_word_model_metadata.json');
-            validateModelBundle(aslWordModel, aslWordVocab, 'ASL Words');
-            console.log("ASL word model loaded successfully.");
+        const manifestResponse = await fetch('./models/asl/wlasl/manifest.json');
+        if (manifestResponse.ok) {
+            const manifest = await manifestResponse.json();
+            if (manifest.enabled) {
+                wlaslConfig = validateWlaslManifest(manifest);
+                const labelsResponse = await fetch(`./${wlaslConfig.labelsPath}`);
+                if (!labelsResponse.ok) throw new Error(`Unable to load ${wlaslConfig.labelsPath}.`);
+                aslWordVocab = await labelsResponse.json();
+                wlaslModel = await tf.loadLayersModel(`./${wlaslConfig.modelPath}`);
+                validateWlaslModelBundle(wlaslModel, aslWordVocab, wlaslConfig);
+                aslWordModel = wlaslModel;
+                aslWordModelMetadata = { ...wlaslConfig, adapter: 'wlasl_rgb_video' };
+                console.log(`WLASL ${wlaslConfig.subset || ''} video model loaded successfully.`);
+            }
         }
     } catch (error) {
-        console.log("No ASL word model installed; ASL Spelling remains available.");
+        console.error("WLASL bundle is enabled but could not be loaded.", error);
+    }
+
+    if (!wlaslModel) {
+        try {
+            const aslWordResponse = await fetch('./asl_word_labels.json');
+            if (aslWordResponse.ok) {
+                aslWordVocab = await aslWordResponse.json();
+                aslWordModel = await tf.loadLayersModel('./asl_word_model.json');
+                aslWordModelMetadata = await loadOptionalJson('./asl_word_model_metadata.json');
+                validateModelBundle(aslWordModel, aslWordVocab, 'ASL Words');
+                console.log("ASL word model loaded successfully.");
+            }
+        } catch (error) {
+            console.log("No ASL word model installed; ASL Spelling remains available.");
+        }
     }
 
     try {
@@ -256,6 +300,19 @@ async function initializeMediaPipe() {
     } catch (error) {
         console.log("Sub-model registry not available; running flat-model-only.");
     }
+
+    await checkWlaslBackend();
+}
+
+async function checkWlaslBackend() {
+    try {
+        const response = await fetch(`${WLASL_API_URL}/health`);
+        const status = response.ok ? await response.json() : null;
+        wlaslBackendReady = status?.status === 'ready' && status?.classes === 300;
+    } catch (error) {
+        wlaslBackendReady = false;
+    }
+    return wlaslBackendReady;
 }
 
 async function loadOptionalJson(path) {
@@ -277,6 +334,15 @@ function validateModelBundle(model, labels, displayName) {
         throw new Error(
             `${displayName} model outputs ${outputCount} classes but its label file contains ${labels.length}.`
         );
+    }
+}
+
+function validateWlaslModelBundle(model, labels, config) {
+    validateModelBundle(model, labels, 'WLASL');
+    const shape = model?.inputs?.[0]?.shape;
+    const expected = [null, config.frameCount, config.imageSize, config.imageSize, 3];
+    if (!shape || shape.length !== 5 || expected.slice(1).some((value, index) => shape[index + 1] !== value)) {
+        throw new Error(`WLASL model input must be [batch, ${expected.slice(1).join(', ')}].`);
     }
 }
 
@@ -334,6 +400,7 @@ window.selectMode = async function (modeId, modeLabel, element) {
     staticSignStreak = 0;
     dynamicSignStreak = 0;
     clearHandCache();
+    stopWlaslCaptureLoop();
 
     const guessLabelUI = document.getElementById('guessLabel');
     const rawOutputUI = document.getElementById('liveOutput');
@@ -349,13 +416,17 @@ window.selectMode = async function (modeId, modeLabel, element) {
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
 
     } else if (currentTrackingMode === "asl_word") {
+        await checkWlaslBackend();
         guessLabelUI.innerText = `Mode: ${modeLabel}`;
-        rawOutputUI.innerText = aslWordModel ? `[ASL]` : "ASL word model not installed";
+        rawOutputUI.innerText = (wlaslBackendReady || aslWordModel)
+            ? `[ASL WLASL300]`
+            : "Start the WLASL service on port 8001";
         if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
         activeModelMetadata = aslWordModelMetadata;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
+        if (isDetecting) startWlaslCaptureLoop();
 
     } else {
         guessLabelUI.innerText = "Mode: ASL Spelling";
@@ -484,6 +555,10 @@ window.startCam = async function () {
             pauseToggleBtn.textContent = "Pause Camera";
             pauseToggleBtn.onclick = window.pauseCam;
         }
+        if (currentTrackingMode === "asl_word") {
+            await checkWlaslBackend();
+            startWlaslCaptureLoop();
+        }
     } catch (err) {
         alert("Unable to access camera. Please check your permissions.");
         console.error(err);
@@ -493,6 +568,8 @@ window.startCam = async function () {
 window.pauseCam = function () {
     webcamVideo.pause();
     isDetecting = false;
+    clearHandCache();
+    stopWlaslCaptureLoop();
 
     if (pauseToggleBtn) {
         pauseToggleBtn.textContent = "Resume Camera";
@@ -501,9 +578,14 @@ window.pauseCam = function () {
 }
 
 window.resumeCam = async function () {
+    clearHandCache();
     await webcamVideo.play();
     isDetecting = true;
     processVideoFrames();
+    if (currentTrackingMode === "asl_word") {
+        await checkWlaslBackend();
+        startWlaslCaptureLoop();
+    }
 
     if (pauseToggleBtn) {
         pauseToggleBtn.textContent = "Pause Camera";
@@ -512,6 +594,7 @@ window.resumeCam = async function () {
 }
 
 window.stopCam = function () {
+    stopWlaslCaptureLoop();
     if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
         cameraStream = null;
@@ -537,6 +620,87 @@ window.stopCam = function () {
     // wipe the skeleton overlay and forget cached hand positions
     canvasContext.clearRect(0, 0, overlayCanvasElement.width, overlayCanvasElement.height);
     clearHandCache();
+}
+
+function startWlaslCaptureLoop() {
+    if (!wlaslBackendReady || !isDetecting || currentTrackingMode !== "asl_word" || !cameraStream) return;
+    if (wlaslRecorder && wlaslRecorder.state !== 'inactive') return;
+
+    const generation = wlaslCaptureGeneration;
+    const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+        .find(type => MediaRecorder.isTypeSupported(type));
+    try {
+        wlaslRecorderChunks = [];
+        wlaslRecorder = mimeType
+            ? new MediaRecorder(cameraStream, { mimeType })
+            : new MediaRecorder(cameraStream);
+    } catch (error) {
+        rawExtractionDisplay.innerText = "This browser cannot record a WLASL clip";
+        console.error("Unable to create WLASL recorder:", error);
+        return;
+    }
+
+    wlaslRecorder.ondataavailable = event => {
+        if (event.data?.size) wlaslRecorderChunks.push(event.data);
+    };
+    wlaslRecorder.onstop = () => {
+        clearTimeout(wlaslCaptureTimer);
+        if (generation !== wlaslCaptureGeneration) return;
+        const clip = new Blob(wlaslRecorderChunks, { type: wlaslRecorder.mimeType || 'video/webm' });
+        wlaslRecorder = null;
+        wlaslRecorderChunks = [];
+        if (isDetecting && currentTrackingMode === "asl_word") startWlaslCaptureLoop();
+        if (clip.size > 0 && !wlaslRequestInFlight) submitWlaslClip(clip, generation);
+    };
+    wlaslRecorder.start();
+    rawExtractionDisplay.innerText = "Watching for one ASL word…";
+    wlaslCaptureTimer = setTimeout(() => {
+        if (wlaslRecorder?.state === 'recording') wlaslRecorder.stop();
+    }, WLASL_CLIP_WINDOW_MS);
+}
+
+function stopWlaslCaptureLoop() {
+    wlaslCaptureGeneration++;
+    clearTimeout(wlaslCaptureTimer);
+    wlaslCaptureTimer = null;
+    if (wlaslRecorder && wlaslRecorder.state !== 'inactive') {
+        wlaslRecorder.onstop = null;
+        wlaslRecorder.stop();
+    }
+    wlaslRecorder = null;
+    wlaslRecorderChunks = [];
+}
+
+async function submitWlaslClip(clip, generation) {
+    wlaslRequestInFlight = true;
+    rawExtractionDisplay.innerText = "Recognizing…";
+    const form = new FormData();
+    form.append('video', clip, 'wlasl-window.webm');
+    try {
+        const response = await fetch(`${WLASL_API_URL}/predict`, { method: 'POST', body: form });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result?.detail || `WLASL API returned ${response.status}`);
+        if (generation !== wlaslCaptureGeneration || currentTrackingMode !== "asl_word") return;
+
+        const predictions = Array.isArray(result.predictions) ? result.predictions : [];
+        if (result.confidence >= WLASL_BACKEND_CONFIDENCE && predictions.length) {
+            stopWlaslCaptureLoop();
+            showDynamicMatch(result.word, result.confidence);
+            acceptDynamicWord(predictions);
+            rawExtractionDisplay.innerText = result.word;
+            setTimeout(() => {
+                if (isDetecting && currentTrackingMode === "asl_word") startWlaslCaptureLoop();
+            }, WLASL_WORD_COOLDOWN_MS);
+        } else {
+            showDynamicIdle(result.confidence || 0, true);
+            rawExtractionDisplay.innerText = "No confident ASL word yet";
+        }
+    } catch (error) {
+        console.error("WLASL prediction failed:", error);
+        rawExtractionDisplay.innerText = "WLASL service unavailable";
+    } finally {
+        wlaslRequestInFlight = false;
+    }
 }
 
 window.flipCam = async function () {
@@ -717,6 +881,8 @@ function clearHandCache() {
     motionBuffer = [];
     handCropBuffer = [];
     motionTimestampBuffer = [];
+    wlaslFrameBuffer = [];
+    lastWlaslInferenceAt = 0;
     wristVelocityBuffer = [];
     routingWristHistory = { Left: [], Right: [] };
     routeHistoryBuffer = [];
@@ -893,6 +1059,9 @@ function resolveDominantRoute() {
 }
 
 function modelAcceptsCurrentBuffer(model, metadata = null) {
+    if (metadata?.adapter === 'wlasl_rgb_video') {
+        return model === wlaslModel && wlaslFrameBuffer.length > 0;
+    }
     const expectedFrameSize = model?.inputs?.[0]?.shape?.[2];
     const actualFrameSize = motionBuffer[0]?.length;
     if (!expectedFrameSize || !actualFrameSize) return false;
@@ -934,7 +1103,10 @@ async function processVideoFrames() {
 
         renderLandmarks(detectedPose, detectedHands);
 
-        if ((detectedHands.landmarks && detectedHands.landmarks.length > 0) || detectedPose) {
+        if (currentTrackingMode === "asl_word" && wlaslBackendReady) {
+            // The backend consumes the camera clip directly; do not also run
+            // the legacy landmark word model or let its idle state overwrite UI.
+        } else if ((detectedHands.landmarks && detectedHands.landmarks.length > 0) || detectedPose) {
             analyzeMovement(detectedHands, detectedPose, currentTimeMs);
         } else {
             resetInactivity();
@@ -1082,6 +1254,23 @@ function analyzeMovement(handData, poseData, timestamp = performance.now()) {
             inferDynamicGesture();
         }
     }
+
+    if (currentTrackingMode === "asl_word" && wlaslModel) {
+        captureWlaslFrame(timestamp);
+    }
+}
+
+function captureWlaslFrame(timestamp) {
+    const size = wlaslConfig.imageSize;
+    wlaslCaptureCanvas.width = size;
+    wlaslCaptureCanvas.height = size;
+    const sourceSize = Math.min(webcamVideo.videoWidth, webcamVideo.videoHeight);
+    const sourceX = (webcamVideo.videoWidth - sourceSize) / 2;
+    const sourceY = (webcamVideo.videoHeight - sourceSize) / 2;
+    wlaslCaptureContext.drawImage(webcamVideo, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+    wlaslFrameBuffer.push({ timestamp, rgba: wlaslCaptureContext.getImageData(0, 0, size, size).data });
+    const cutoff = timestamp - wlaslConfig.clipDurationMs;
+    while (wlaslFrameBuffer.length > 1 && wlaslFrameBuffer[0].timestamp < cutoff) wlaslFrameBuffer.shift();
 }
 
 function legacyHolisticSequence(frames, targetLength) {
@@ -1109,6 +1298,7 @@ function reduceHolisticToKslRaw(frame) {
 }
 
 function prepareInferenceInputs(model, metadata) {
+    if (metadata?.adapter === 'wlasl_rgb_video') return prepareWlaslInferenceInputs(metadata);
     const sequenceLength = model?.inputs?.[0]?.shape?.[1] || metadata?.frameCount || LEGACY_REQUIRED_FRAMES;
     const frameWidth = model?.inputs?.[0]?.shape?.[2];
 
@@ -1159,6 +1349,26 @@ function prepareInferenceInputs(model, metadata) {
     };
 }
 
+function prepareWlaslInferenceInputs(config) {
+    if (wlaslFrameBuffer.length < 2) return null;
+    const duration = wlaslFrameBuffer.at(-1).timestamp - wlaslFrameBuffer[0].timestamp;
+    if (duration < config.clipDurationMs * 0.8) return null;
+    const indices = uniformSampleIndices(wlaslFrameBuffer.length, config.frameCount);
+    const rgb = new Uint8Array(config.frameCount * config.imageSize * config.imageSize * 3);
+    let target = 0;
+    for (const index of indices) {
+        const rgba = wlaslFrameBuffer[index].rgba;
+        for (let source = 0; source < rgba.length; source += 4) {
+            rgb[target++] = rgba[source];
+            rgb[target++] = rgba[source + 1];
+            rgb[target++] = rgba[source + 2];
+        }
+    }
+    const values = normalizeRgbBytes(rgb, config.normalization);
+    const tensor = tf.tensor5d(values, [1, config.frameCount, config.imageSize, config.imageSize, 3]);
+    return { inputs: tensor, tensors: [tensor] };
+}
+
 function resampleFlatFrames(frames, targetLength) {
     if (!frames.length) return [];
     if (frames.length === targetLength) return frames.map(frame => frame.slice());
@@ -1174,6 +1384,12 @@ function resampleFlatFrames(frames, targetLength) {
 // run the tensorflow model on the buffered frames to recognize a motion sign
 function inferDynamicGesture() {
     staticSignStreak = 0;
+
+    if (currentTrackingMode === "asl_word" && wlaslModel) {
+        const now = performance.now();
+        if (now - lastWlaslInferenceAt < 500) return;
+        lastWlaslInferenceAt = now;
+    }
 
     if (currentTrackingMode === "csl_word") {
         resolveDominantRoute();
@@ -1288,9 +1504,11 @@ function inferDynamicGesture() {
 
     const idleWords = ["idle", "none", "", "still", "មិនកម្រើក"];
     const isVotedIdle = isUserIdle || idleWords.includes(votedSign.trim().toLowerCase());
-    const threshold = (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word")
-        ? getDynamicThreshold()
-        : CONFIDENCE_THRESHOLD;
+    const threshold = currentTrackingMode === "asl_word" && wlaslModel
+        ? wlaslConfig.confidenceThreshold
+        : ((currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word")
+            ? getDynamicThreshold()
+            : CONFIDENCE_THRESHOLD);
 
     if (!isVotedIdle && confidenceLevel > threshold) {
         showDynamicMatch(votedSign, confidenceLevel);
@@ -1606,6 +1824,8 @@ function resetInactivity() {
     motionBuffer = [];
     handCropBuffer = [];
     motionTimestampBuffer = [];
+    wlaslFrameBuffer = [];
+    lastWlaslInferenceAt = 0;
     runtimeHandSlotState = createKslHandSlotState();
     predictionVotes = [];
     routeHistoryBuffer = [];
