@@ -698,6 +698,10 @@ function metadataString(recording, camelName, snakeName) {
     return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function normalizeLabel(value) {
+    return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
 function chooseValidationGrouping(rawData) {
     const signerIds = rawData.map(item => metadataString(item, 'signerId', 'signer_id'));
     if (signerIds.every(Boolean) && new Set(signerIds).size > 1) {
@@ -1030,7 +1034,7 @@ async function startTraining() {
             if (typeof item.label !== 'string' || !item.label.trim()) {
                 throw new Error(`Recording ${number} is missing a valid label.`);
             }
-            item.label = item.label.trim();
+            item.label = normalizeLabel(item.label);
             if (!Array.isArray(item.frames) || item.frames.length === 0) {
                 throw new Error(`Recording ${number} has no landmark frames.`);
             }
