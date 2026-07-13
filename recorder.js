@@ -268,7 +268,7 @@ async function recordOneSample({ manageControls = true } = {}) {
 
 function readRecordingMetadata() {
     return {
-        label: document.getElementById("gestureName").value.trim(),
+        label: normalizeLabel(document.getElementById("gestureName").value),
         signerId: document.getElementById("signerId").value.trim(),
         sessionId: document.getElementById("sessionId").value.trim()
     };
@@ -318,7 +318,7 @@ function downloadRecording(metadata) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${safeFilename(metadata.label)}_${isKsl ? "ksl" : "asl"}_${Date.now()}.json`;
+    link.download = buildRecordingFilename(metadata, isKsl);
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -568,6 +568,21 @@ function clampNumber(value, minimum, maximum, fallback) {
 
 function safeFilename(value) {
     return value.replace(/[^a-z0-9_-]+/gi, "_").replace(/^_+|_+$/g, "") || "sign";
+}
+
+function normalizeLabel(value) {
+    return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function buildRecordingFilename(metadata, isKsl, timestamp = Date.now()) {
+    const parts = [
+        metadata.label,
+        metadata.signerId,
+        metadata.sessionId,
+        isKsl ? "ksl" : "asl",
+        String(timestamp)
+    ];
+    return `${parts.map(safeFilename).join("__")}.json`;
 }
 
 function delay(milliseconds) {

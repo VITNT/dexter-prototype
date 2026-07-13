@@ -11,6 +11,10 @@ const trainerPrepare = vm.runInContext(
   "frames => buildKslGraphFeatures(normalizeKslPositionFrames(extractKslPositionFrames(frames)))",
   context
 );
+const trainerNormalizeLabel = vm.runInContext("value => normalizeLabel(value)", context);
+
+assert.equal(trainerNormalizeLabel("  Thank   You  "), "thank you");
+assert.equal(trainerNormalizeLabel("ＨＥＬＬＯ"), "hello");
 
 const frames = Array.from({ length: KSL_FEATURE_SCHEMA.targetFrameCount }, (_, frameIndex) => {
   const frame = new Array(KSL_FEATURE_SCHEMA.rawFrameWidth).fill(0);
