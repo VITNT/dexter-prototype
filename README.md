@@ -1,5 +1,9 @@
 # Dexter Sign Language Recognition
 
+For a fresh clone, follow [SETUP.md](SETUP.md). VS Code **Go Live** alone is
+not enough for ASL Words because WLASL300 runs in a local Python service and its
+checkpoint is excluded from Git.
+
 This branch contains the scalable sign-language-recognition redesign work.
 
 The app remains browser-based, but KSL word recognition now has a versioned,
