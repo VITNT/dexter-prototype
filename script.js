@@ -486,12 +486,16 @@ window.changeMode = async function () {
 
     } else if (currentTrackingMode === "asl_word") {
         guessLabelDisplay.innerText = "Mode: ASL Words";
-        rawExtractionDisplay.innerText = aslWordModel ? "[ASL]" : "ASL word model not installed";
+        await checkWlaslBackend();
+        rawExtractionDisplay.innerText = (wlaslBackendReady || aslWordModel)
+            ? "[ASL WLASL300]"
+            : "Start the WLASL service on port 8001";
         if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
         activeModelMetadata = aslWordModelMetadata;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
+        if (isDetecting) startWlaslCaptureLoop();
 
     } else {
         guessLabelDisplay.innerText = "Mode: ASL Spelling";
@@ -569,6 +573,7 @@ window.pauseCam = function () {
     webcamVideo.pause();
     isDetecting = false;
     clearHandCache();
+    stopWlaslCaptureLoop();
     stopWlaslCaptureLoop();
 
     if (pauseToggleBtn) {
@@ -1411,8 +1416,8 @@ function inferDynamicGesture() {
     const metadataToUse = useRoutedModel ? activeSubMetadata : activeModelMetadata;
 
     if (!modelToUse || !vocabularyToUse?.length) {
-        if (currentTrackingMode === "asl_word" && !aslWordModel) {
-            rawExtractionDisplay.innerText = "ASL word model not installed";
+        if (currentTrackingMode === "asl_word" && !aslWordModel && !wlaslBackendReady) {
+            rawExtractionDisplay.innerText = "Start the WLASL service on port 8001";
         }
         showDynamicIdle(0, true);
         return;

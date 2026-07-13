@@ -13,7 +13,8 @@ from .inference import load_labels, predict_video
 app = FastAPI(title="Dexter WLASL300 inference", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_origins=[],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -54,4 +55,3 @@ async def predict(video: UploadFile = File(...)) -> dict:
         await video.close()
         if temporary_path and os.path.exists(temporary_path):
             os.unlink(temporary_path)
-
