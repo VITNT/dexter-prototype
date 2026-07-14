@@ -7,7 +7,8 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import CHECKPOINT_PATH, NUM_CLASSES
+from .config import CHECKPOINT_PATH, CONTINUOUS_CHECKPOINT_PATH, NUM_CLASSES
+from .continuous_inference import predict_continuous_video
 from .inference import load_labels, predict_video
 
 app = FastAPI(title="Dexter WLASL300 inference", version="0.1.0")
@@ -34,6 +35,8 @@ def health() -> dict:
         "checkpointFound": CHECKPOINT_PATH.exists(),
         "labelsFound": labels_ready,
         "classes": NUM_CLASSES,
+        "sequenceModelReady": CONTINUOUS_CHECKPOINT_PATH.exists(),
+        "sequenceCheckpoint": str(CONTINUOUS_CHECKPOINT_PATH),
     }
 
 
@@ -47,6 +50,26 @@ async def predict(video: UploadFile = File(...)) -> dict:
             while chunk := await video.read(1024 * 1024):
                 temporary.write(chunk)
         return predict_video(temporary_path)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        await video.close()
+        if temporary_path and os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+@app.post("/predict-sequence")
+async def predict_sequence(video: UploadFile = File(...)) -> dict:
+    suffix = Path(video.filename or "sentence.webm").suffix or ".webm"
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temporary:
+            temporary_path = temporary.name
+            while chunk := await video.read(1024 * 1024):
+                temporary.write(chunk)
+        return predict_continuous_video(temporary_path)
     except FileNotFoundError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except (RuntimeError, ValueError) as error:

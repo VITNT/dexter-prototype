@@ -4,16 +4,28 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const glossInput = req.body.aslString;
+        const glossInput = req.body.glossString || req.body.aslString;
+        const language = req.body.language === "ksl" ? "KSL" : "ASL";
 
         if (!glossInput) {
-            return res.status(400).json({ error: "Missing ASL string" });
+            return res.status(400).json({ error: "Missing gloss string" });
         }
 
         const API_KEY = process.env.GEMINI_API_KEY;
 
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
-        const prompt = `You are an ASL gloss-to-English translator.
+        const prompt = language === "KSL"
+            ? `You are a Khmer Sign Language gloss-to-natural-Khmer interpreter.
+
+The input is an ordered sequence of recognized KSL sign labels. Rewrite it as one natural Khmer sentence. Preserve the intended meaning and do not add information.
+
+Rules:
+- Output ONLY the final Khmer sentence
+- No explanations, reasoning, romanization, or extra text
+
+KSL gloss: ${glossInput}
+Khmer:`
+            : `You are an ASL gloss-to-English translator.
 
 ASL gloss is a written representation of American Sign Language where each word is an English label for a specific sign. The words are NOT foreign language words — they are literal English names for hand signs. Do NOT try to interpret or translate the individual words as if they are from another language. Just rearrange them into a natural English sentence.
 

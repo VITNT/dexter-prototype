@@ -68,6 +68,18 @@
             <video id="webcamFeed" autoplay playsinline muted webkit-playsinline></video>
             <canvas class="overlayCanvas"></canvas>
           </div>
+          <div id="signTimingCue" class="sign-timing-cue" data-state="off" role="status" aria-live="polite">
+            <div class="sign-timing-copy">
+              <span class="sign-timing-dot" aria-hidden="true"></span>
+              <div>
+                <div id="signTimingLabel" class="sign-timing-label">Camera off</div>
+                <div id="signTimingDetail" class="sign-timing-detail">Start the camera when you are ready</div>
+              </div>
+            </div>
+            <div class="sign-timing-track" aria-hidden="true">
+              <div id="signTimingBar" class="sign-timing-bar"></div>
+            </div>
+          </div>
 
 
           <div class="debug-panel">
@@ -82,6 +94,8 @@
         <div class="dex-box-footer">
           <div class="dex-controls-left">
             <button id="cameraBtn" class="dex-btn-primary" onclick="window.startCam()">Start Camera</button>
+            <button id="recordSignBtn" class="dex-btn-record" onclick="window.recordSign()" style="display: none;"
+              disabled>Record 10s Clip</button>
             <button id="pauseBtn" class="dex-btn-primary" onclick="window.pauseCam()"
               style="display: none; margin-left: 8px;">Pause Camera</button>
             <button class="dex-icon-btn" onclick="window.flipCam()" title="Flip Camera">

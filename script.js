@@ -11,6 +11,7 @@ import {
     uniformSampleIndices,
     validateWlaslManifest
 } from "./src/pipeline/wlasl_video_pipeline.mjs";
+import { segmentPausedWords } from "./src/pipeline/pause_segmentation.mjs";
 
 // skip drawing skeletons on phones — they can't handle it
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -21,6 +22,7 @@ let cameraStream;
 let webcamVideo = document.getElementById('webcamFeed');
 let cameraToggleBtn = document.getElementById('cameraBtn');
 let pauseToggleBtn = document.getElementById('pauseBtn');
+let recordSignBtn = document.getElementById('recordSignBtn');
 let activeCameraFacing = "user";
 let isDetecting = false;
 let currentTrackingMode = "asl_letter";
@@ -31,6 +33,10 @@ let confidenceProgressBar = document.getElementById('confidenceBar');
 let confidencePctDisplay = document.getElementById('confidencePct');
 let guessLabelDisplay = document.getElementById('guessLabel');
 let sentenceBuilderDisplay = document.getElementById('builtSentence');
+let signTimingCue = document.getElementById('signTimingCue');
+let signTimingLabel = document.getElementById('signTimingLabel');
+let signTimingDetail = document.getElementById('signTimingDetail');
+let signTimingBar = document.getElementById('signTimingBar');
 
 // mediapipe hand + pose trackers
 let handTracker;
@@ -42,11 +48,13 @@ let aslModel, aslWordModel, cslModel;
 let wlaslModel = null;
 let wlaslConfig = null;
 let wlaslBackendReady = false;
+let wlaslSequenceReady = false;
 let wlaslRecorder = null;
 let wlaslRecorderChunks = [];
 let wlaslCaptureTimer = null;
 let wlaslRequestInFlight = false;
 let wlaslCaptureGeneration = 0;
+let isWordClipRecording = false;
 let aslModelMetadata = null;
 let aslWordModelMetadata = null;
 let cslModelMetadata = null;
@@ -82,9 +90,119 @@ const REQUIRED_FRAMES = LEGACY_REQUIRED_FRAMES;
 const COOLDOWN_DURATION_MS = 1500;
 const CONFIDENCE_THRESHOLD = 0.90;
 const WLASL_API_URL = 'http://127.0.0.1:8001';
-const WLASL_CLIP_WINDOW_MS = 1800;
-const WLASL_WORD_COOLDOWN_MS = 300;
+const WORD_CLIP_MAX_DURATION_MS = 10_000;
 const WLASL_BACKEND_CONFIDENCE = 0.55;
+const WORD_MIN_CAPTURE_MS = 1200;
+const NEUTRAL_RESET_MS = 450;
+let signTimingResetTimer = null;
+let signTimingState = "off";
+let neutralResetRequired = false;
+let neutralResetStartedAt = null;
+
+function setSignTimingCue(state, label, detail, progress = 0, transitionMs = 0) {
+    if (!signTimingCue) return;
+    signTimingState = state;
+    signTimingCue.dataset.state = state;
+    if (signTimingLabel.innerText !== label) signTimingLabel.innerText = label;
+    if (signTimingDetail.innerText !== detail) signTimingDetail.innerText = detail;
+    signTimingBar.style.transition = transitionMs > 0
+        ? `width ${transitionMs}ms linear`
+        : "none";
+    signTimingBar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+}
+
+function showReadyToSign() {
+    clearTimeout(signTimingResetTimer);
+    if (!isDetecting) {
+        setSignTimingCue("off", "Camera off", "Start the camera when you are ready");
+        return;
+    }
+    if (neutralResetRequired && currentTrackingMode !== "asl_letter") {
+        setSignTimingCue("reset", "Lower hands to continue", "A brief neutral pause separates each sign", 0);
+        return;
+    }
+    const label = currentTrackingMode === "asl_letter"
+        ? "Ready · hold a letter"
+        : "Ready · record a 10-second clip";
+    const detail = currentTrackingMode === "asl_letter"
+        ? "Hold one letter clearly in the frame"
+        : (currentTrackingMode === "csl_word"
+            ? "Sign several KSL words with a hands-down pause between them"
+            : "Sign one ASL sentence for continuous CTC recognition");
+    setSignTimingCue("ready", label, detail, 100);
+}
+
+function isWordMode() {
+    return currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word";
+}
+
+function updateWordCaptureControls() {
+    if (!recordSignBtn) return;
+    recordSignBtn.style.display = isWordMode() ? "inline-block" : "none";
+    recordSignBtn.disabled = !isWordMode() || !cameraStream || !isDetecting || wlaslRequestInFlight;
+    recordSignBtn.textContent = isWordClipRecording ? "Stop Recording" : "Record 10s Clip";
+    recordSignBtn.classList.toggle("is-recording", isWordClipRecording);
+}
+
+function showTimedCapture(durationMs) {
+    clearTimeout(signTimingResetTimer);
+    setSignTimingCue("capturing", "Sign now", "Complete one sign before the bar fills", 0);
+    requestAnimationFrame(() => {
+        if (signTimingState === "capturing") {
+            signTimingBar.style.transition = `width ${durationMs}ms linear`;
+            signTimingBar.style.width = "100%";
+        }
+    });
+}
+
+function showCaptureProgress(progress) {
+    if (Date.now() <= actionCooldown) return;
+    const complete = progress >= 100;
+    setSignTimingCue(
+        complete ? "processing" : "capturing",
+        complete ? "Checking…" : "Sign now",
+        complete ? "Hold briefly while Dexter recognizes it" : "Keep the full sign in the frame",
+        progress
+    );
+}
+
+function showSignCaptured(value, delayMs = COOLDOWN_DURATION_MS) {
+    clearTimeout(signTimingResetTimer);
+    setSignTimingCue("captured", "Captured · pause", `“${value}” · Pause before the next sign`, 0);
+    requestAnimationFrame(() => {
+        if (signTimingState === "captured") {
+            signTimingBar.style.transition = `width ${delayMs}ms linear`;
+            signTimingBar.style.width = "100%";
+        }
+    });
+    signTimingResetTimer = setTimeout(showReadyToSign, delayMs);
+}
+
+function requireNeutralReset() {
+    neutralResetRequired = true;
+    neutralResetStartedAt = null;
+}
+
+function updateNeutralReset(hasHands, timestamp = performance.now()) {
+    if (!neutralResetRequired || currentTrackingMode === "asl_letter") return false;
+    if (hasHands) {
+        neutralResetStartedAt = null;
+        if (Date.now() > actionCooldown) showReadyToSign();
+        return true;
+    }
+    if (neutralResetStartedAt === null) neutralResetStartedAt = timestamp;
+    const progress = Math.min(100, ((timestamp - neutralResetStartedAt) / NEUTRAL_RESET_MS) * 100);
+    if (Date.now() > actionCooldown) {
+        setSignTimingCue("reset", "Hold neutral…", "Keep your hands lowered briefly", progress);
+    }
+    if (progress >= 100) {
+        neutralResetRequired = false;
+        neutralResetStartedAt = null;
+        clearHandCache();
+        if (Date.now() > actionCooldown) showReadyToSign();
+    }
+    return true;
+}
 
 const wlaslCaptureCanvas = document.createElement('canvas');
 const wlaslCaptureContext = wlaslCaptureCanvas.getContext('2d', { willReadFrequently: true });
@@ -309,8 +427,10 @@ async function checkWlaslBackend() {
         const response = await fetch(`${WLASL_API_URL}/health`);
         const status = response.ok ? await response.json() : null;
         wlaslBackendReady = status?.status === 'ready' && status?.classes === 300;
+        wlaslSequenceReady = wlaslBackendReady && status?.sequenceModelReady === true;
     } catch (error) {
         wlaslBackendReady = false;
+        wlaslSequenceReady = false;
     }
     return wlaslBackendReady;
 }
@@ -426,7 +546,6 @@ window.selectMode = async function (modeId, modeLabel, element) {
         activeVocabulary = aslWordVocab;
         activeModelMetadata = aslWordModelMetadata;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
-        if (isDetecting) startWlaslCaptureLoop();
 
     } else {
         guessLabelUI.innerText = "Mode: ASL Spelling";
@@ -437,6 +556,8 @@ window.selectMode = async function (modeId, modeLabel, element) {
         activeModelMetadata = aslModelMetadata;
         if (handTracker) await handTracker.setOptions({ numHands: 1 });
     }
+    showReadyToSign();
+    updateWordCaptureControls();
 }
 
 // clicking anywhere else closes the dropdown
@@ -495,7 +616,6 @@ window.changeMode = async function () {
         activeVocabulary = aslWordVocab;
         activeModelMetadata = aslWordModelMetadata;
         if (handTracker) await handTracker.setOptions({ numHands: 2 });
-        if (isDetecting) startWlaslCaptureLoop();
 
     } else {
         guessLabelDisplay.innerText = "Mode: ASL Spelling";
@@ -506,6 +626,8 @@ window.changeMode = async function () {
         activeModelMetadata = aslModelMetadata;
         if (handTracker) await handTracker.setOptions({ numHands: 1 });
     }
+    showReadyToSign();
+    updateWordCaptureControls();
 }
 
 
@@ -549,6 +671,8 @@ window.startCam = async function () {
         }
 
         isDetecting = true;
+        showReadyToSign();
+        updateWordCaptureControls();
         processVideoFrames();
 
         cameraToggleBtn.textContent = "Stop Camera";
@@ -561,7 +685,6 @@ window.startCam = async function () {
         }
         if (currentTrackingMode === "asl_word") {
             await checkWlaslBackend();
-            startWlaslCaptureLoop();
         }
     } catch (err) {
         alert("Unable to access camera. Please check your permissions.");
@@ -574,7 +697,8 @@ window.pauseCam = function () {
     isDetecting = false;
     clearHandCache();
     stopWlaslCaptureLoop();
-    stopWlaslCaptureLoop();
+    showReadyToSign();
+    updateWordCaptureControls();
 
     if (pauseToggleBtn) {
         pauseToggleBtn.textContent = "Resume Camera";
@@ -586,10 +710,11 @@ window.resumeCam = async function () {
     clearHandCache();
     await webcamVideo.play();
     isDetecting = true;
+    showReadyToSign();
+    updateWordCaptureControls();
     processVideoFrames();
     if (currentTrackingMode === "asl_word") {
         await checkWlaslBackend();
-        startWlaslCaptureLoop();
     }
 
     if (pauseToggleBtn) {
@@ -612,6 +737,10 @@ window.stopCam = function () {
         webcamVideo.load();
     }
     isDetecting = false;
+    neutralResetRequired = false;
+    neutralResetStartedAt = null;
+    showReadyToSign();
+    updateWordCaptureControls();
 
     cameraToggleBtn.textContent = "Start Camera";
     cameraToggleBtn.onclick = window.startCam;
@@ -627,11 +756,29 @@ window.stopCam = function () {
     clearHandCache();
 }
 
-function startWlaslCaptureLoop() {
-    if (!wlaslBackendReady || !isDetecting || currentTrackingMode !== "asl_word" || !cameraStream) return;
+window.recordSign = async function () {
+    if (isWordClipRecording) {
+        if (wlaslRecorder?.state === "recording") wlaslRecorder.stop();
+        return;
+    }
+    if (!isWordMode() || !isDetecting || !cameraStream || wlaslRequestInFlight) return;
     if (wlaslRecorder && wlaslRecorder.state !== 'inactive') return;
 
-    const generation = wlaslCaptureGeneration;
+    if (currentTrackingMode === "asl_word") await checkWlaslBackend();
+    if (currentTrackingMode === "asl_word" && !wlaslBackendReady && !wlaslModel && !aslWordModel) {
+        rawExtractionDisplay.innerText = "Start the WLASL service on port 8001";
+        return;
+    }
+
+    clearHandCache();
+    neutralResetRequired = false;
+    const generation = ++wlaslCaptureGeneration;
+    const captureMode = currentTrackingMode;
+    const durationMs = WORD_CLIP_MAX_DURATION_MS;
+    if (typeof MediaRecorder === "undefined") {
+        rawExtractionDisplay.innerText = "This browser cannot record a sign clip";
+        return;
+    }
     const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
         .find(type => MediaRecorder.isTypeSupported(type));
     try {
@@ -640,8 +787,8 @@ function startWlaslCaptureLoop() {
             ? new MediaRecorder(cameraStream, { mimeType })
             : new MediaRecorder(cameraStream);
     } catch (error) {
-        rawExtractionDisplay.innerText = "This browser cannot record a WLASL clip";
-        console.error("Unable to create WLASL recorder:", error);
+        rawExtractionDisplay.innerText = "This browser cannot record a sign clip";
+        console.error("Unable to create sign recorder:", error);
         return;
     }
 
@@ -654,38 +801,118 @@ function startWlaslCaptureLoop() {
         const clip = new Blob(wlaslRecorderChunks, { type: wlaslRecorder.mimeType || 'video/webm' });
         wlaslRecorder = null;
         wlaslRecorderChunks = [];
-        if (isDetecting && currentTrackingMode === "asl_word") startWlaslCaptureLoop();
-        if (clip.size > 0 && !wlaslRequestInFlight) submitWlaslClip(clip, generation);
+        isWordClipRecording = false;
+        updateWordCaptureControls();
+        setSignTimingCue("processing", "Checking…", "Classifying the recorded sign clip", 100);
+        if (captureMode === "asl_word" && wlaslBackendReady) {
+            if (clip.size > 0 && !wlaslRequestInFlight) submitWlaslClip(clip, generation);
+        } else if (captureMode === "csl_word") {
+            inferKslSentence(generation);
+        } else {
+            inferDynamicGesture(true);
+        }
     };
     wlaslRecorder.start();
-    rawExtractionDisplay.innerText = "Watching for one ASL word…";
+    isWordClipRecording = true;
+    updateWordCaptureControls();
+    rawExtractionDisplay.innerText = captureMode === "asl_word"
+        ? "Recording one ASL sentence (up to 10 seconds)…"
+        : "Recording KSL words — lower hands briefly between words…";
+    showTimedCapture(durationMs);
     wlaslCaptureTimer = setTimeout(() => {
         if (wlaslRecorder?.state === 'recording') wlaslRecorder.stop();
-    }, WLASL_CLIP_WINDOW_MS);
+    }, durationMs);
+}
+
+function inferKslSentence(generation) {
+    const fullFrames = motionBuffer.map(frame => frame.slice());
+    const fullTimestamps = motionTimestampBuffer.slice();
+    const fullCrops = handCropBuffer.map(frame => frame.slice());
+    const fullRoutes = routeHistoryBuffer.slice();
+    const segments = segmentPausedWords(fullFrames, fullTimestamps);
+
+    const recognizedWords = [];
+
+    for (const segment of segments) {
+        motionBuffer = fullFrames.slice(segment.frameStart, segment.frameEnd).map(frame => frame.slice());
+        motionTimestampBuffer = fullTimestamps.slice(segment.frameStart, segment.frameEnd);
+        handCropBuffer = fullCrops.slice(segment.frameStart, segment.frameEnd).map(frame => frame.slice());
+        routeHistoryBuffer = fullRoutes.slice(segment.frameStart, segment.frameEnd);
+        predictionVotes = [];
+        dynamicSignStreak = 0;
+        lastDynamicGuess = "";
+        actionCooldown = 0;
+
+        const result = inferDynamicGesture(true);
+        if (result?.accepted) recognizedWords.push(result.word);
+    }
+
+    if (generation !== wlaslCaptureGeneration || currentTrackingMode !== "csl_word") return;
+    const acceptedCount = recognizedWords.length;
+    rawExtractionDisplay.innerText = segments.length
+        ? `${acceptedCount} of ${segments.length} KSL words recognized`
+        : "No word segments found — pause with hands lowered between signs";
+    setSignTimingCue(
+        acceptedCount ? "captured" : "ready",
+        acceptedCount ? `${acceptedCount} words captured` : "No words detected",
+        "Use a brief hands-down pause between KSL words",
+        acceptedCount ? 100 : 0
+    );
+    updateWordCaptureControls();
+    clearHandCache();
 }
 
 function stopWlaslCaptureLoop() {
     wlaslCaptureGeneration++;
     clearTimeout(wlaslCaptureTimer);
     wlaslCaptureTimer = null;
+    isWordClipRecording = false;
     if (wlaslRecorder && wlaslRecorder.state !== 'inactive') {
         wlaslRecorder.onstop = null;
         wlaslRecorder.stop();
     }
     wlaslRecorder = null;
     wlaslRecorderChunks = [];
+    updateWordCaptureControls();
 }
 
 async function submitWlaslClip(clip, generation) {
     wlaslRequestInFlight = true;
+    updateWordCaptureControls();
     rawExtractionDisplay.innerText = "Recognizing…";
+    setSignTimingCue("processing", "Checking…", "Recognition usually takes a moment", 100);
     const form = new FormData();
-    form.append('video', clip, 'wlasl-window.webm');
+    form.append('video', clip, 'wlasl-sentence.webm');
     try {
-        const response = await fetch(`${WLASL_API_URL}/predict`, { method: 'POST', body: form });
+        const endpoint = wlaslSequenceReady ? "/predict-sequence" : "/predict";
+        const response = await fetch(`${WLASL_API_URL}${endpoint}`, { method: 'POST', body: form });
         const result = await response.json();
         if (!response.ok) throw new Error(result?.detail || `WLASL API returned ${response.status}`);
         if (generation !== wlaslCaptureGeneration || currentTrackingMode !== "asl_word") return;
+
+        if (wlaslSequenceReady) {
+            const words = Array.isArray(result.words)
+                ? result.words.filter(word => word?.word && word.confidence >= 0.35)
+                : [];
+            for (const word of words) {
+                acceptDynamicWord([{ word: word.word, conf: word.confidence }]);
+            }
+            stopWlaslCaptureLoop();
+            rawExtractionDisplay.innerText = words.length
+                ? `${words.length} ASL words recognized`
+                : "No confident ASL sentence detected";
+            setSignTimingCue(
+                words.length ? "captured" : "ready",
+                words.length ? `${words.length} words captured` : "No words detected",
+                "The continuous ASL model decoded the complete clip",
+                words.length ? 100 : 0
+            );
+            if (result.trainingDomain === "synthetic_wlasl_only") {
+                rawExtractionDisplay.title = "Bootstrap model: fine-tune on real continuous ASL for natural transitions.";
+            }
+            updateWordCaptureControls();
+            return;
+        }
 
         const predictions = Array.isArray(result.predictions) ? result.predictions : [];
         if (result.confidence >= WLASL_BACKEND_CONFIDENCE && predictions.length) {
@@ -693,18 +920,21 @@ async function submitWlaslClip(clip, generation) {
             showDynamicMatch(result.word, result.confidence);
             acceptDynamicWord(predictions);
             rawExtractionDisplay.innerText = result.word;
-            setTimeout(() => {
-                if (isDetecting && currentTrackingMode === "asl_word") startWlaslCaptureLoop();
-            }, WLASL_WORD_COOLDOWN_MS);
+            rawExtractionDisplay.title = "Isolated-word fallback: train wlasl300_ctc.pt for sentence output.";
         } else {
             showDynamicIdle(result.confidence || 0, true);
             rawExtractionDisplay.innerText = "No confident ASL word yet";
+            requireNeutralReset();
+            showReadyToSign();
         }
     } catch (error) {
         console.error("WLASL prediction failed:", error);
         rawExtractionDisplay.innerText = "WLASL service unavailable";
+        requireNeutralReset();
+        showReadyToSign();
     } finally {
         wlaslRequestInFlight = false;
+        updateWordCaptureControls();
     }
 }
 
@@ -718,11 +948,15 @@ window.flipCam = async function () {
 
 window.clearWord = function () {
     accumulatedWord = "";
+    actionCooldown = 0;
+    neutralResetRequired = false;
+    neutralResetStartedAt = null;
     sentenceBuilderDisplay.innerHTML = "";
 
     const finalResultUI = document.getElementById('translatedResult');
     if (finalResultUI) finalResultUI.innerText = "";
     rawExtractionDisplay.innerText = "...";
+    showReadyToSign();
 }
 
 window.translateSentence = async function () {
@@ -735,7 +969,10 @@ window.translateSentence = async function () {
         const response = await fetch('/api/translate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ aslString: accumulatedWord })
+            body: JSON.stringify({
+                glossString: accumulatedWord,
+                language: currentTrackingMode === "csl_word" ? "ksl" : "asl"
+            })
         });
 
         if (!response.ok) {
@@ -1108,12 +1345,22 @@ async function processVideoFrames() {
 
         renderLandmarks(detectedPose, detectedHands);
 
-        if (currentTrackingMode === "asl_word" && wlaslBackendReady) {
-            // The backend consumes the camera clip directly; do not also run
-            // the legacy landmark word model or let its idle state overwrite UI.
-        } else if ((detectedHands.landmarks && detectedHands.landmarks.length > 0) || detectedPose) {
-            analyzeMovement(detectedHands, detectedPose, currentTimeMs);
-        } else {
+        const hasHands = Boolean(detectedHands.landmarks?.length);
+        if (isWordMode()) {
+            // Word modes classify one explicit recorded clip. Keep the camera
+            // as a preview between clips and collect landmarks only while the
+            // red Record Sign window is active.
+            if (isWordClipRecording && (hasHands || detectedPose)) {
+                analyzeMovement(detectedHands, detectedPose, currentTimeMs);
+            }
+        } else if (hasHands) {
+            if (updateNeutralReset(hasHands, currentTimeMs)) {
+                // Ignore held hands until a clear neutral gap separates signs.
+            } else if (currentTrackingMode === "asl_letter" || Date.now() > actionCooldown) {
+                analyzeMovement(detectedHands, detectedPose, currentTimeMs);
+            }
+        } else if (!isWordClipRecording) {
+            updateNeutralReset(false, currentTimeMs);
             resetInactivity();
         }
     }
@@ -1201,9 +1448,10 @@ function analyzeMovement(handData, poseData, timestamp = performance.now()) {
         motionTimestampBuffer.push(timestamp);
         if (currentTrackingMode !== "asl_letter") {
             handCropBuffer.push(extractTwoHandCropFrame(handData, assignedWordHands));
+            const bufferWindowMs = isWordClipRecording ? WORD_CLIP_MAX_DURATION_MS + 500 : 2500;
             while (
                 motionBuffer.length > 2
-                && timestamp - motionTimestampBuffer[0] > 2500
+                && timestamp - motionTimestampBuffer[0] > bufferWindowMs
             ) {
                 motionBuffer.shift();
                 motionTimestampBuffer.shift();
@@ -1213,6 +1461,18 @@ function analyzeMovement(handData, poseData, timestamp = performance.now()) {
             motionBuffer.shift();
             motionTimestampBuffer.shift();
         }
+    }
+
+    if (currentTrackingMode !== "asl_letter" && motionTimestampBuffer.length > 0) {
+        const captureDuration = isWordClipRecording
+            ? WORD_CLIP_MAX_DURATION_MS
+            : (currentTrackingMode === "asl_word" && wlaslModel
+                ? wlaslConfig.clipDurationMs
+                : (activeAIModel?.inputs?.[0]?.shape?.[2] === KSL_FEATURE_SCHEMA.modelFrameWidth
+                    ? 1900
+                    : WORD_MIN_CAPTURE_MS));
+        const elapsed = timestamp - motionTimestampBuffer[0];
+        showCaptureProgress((elapsed / captureDuration) * 100);
     }
 
     if (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") {
@@ -1231,7 +1491,9 @@ function analyzeMovement(handData, poseData, timestamp = performance.now()) {
             routeHistoryBuffer.push("unknown_neutral");
         }
 
-        if (routeHistoryBuffer.length > KSL_REQUIRED_FRAMES) routeHistoryBuffer.shift();
+        if (!isWordClipRecording && routeHistoryBuffer.length > KSL_REQUIRED_FRAMES) {
+            routeHistoryBuffer.shift();
+        }
         updateRoutingDebugUI();
     }
 
@@ -1255,7 +1517,7 @@ function analyzeMovement(handData, poseData, timestamp = performance.now()) {
             } else if (hand) {
                 inferStaticGesture(hand);
             }
-        } else {
+        } else if (!isWordClipRecording) {
             inferDynamicGesture();
         }
     }
@@ -1274,7 +1536,10 @@ function captureWlaslFrame(timestamp) {
     const sourceY = (webcamVideo.videoHeight - sourceSize) / 2;
     wlaslCaptureContext.drawImage(webcamVideo, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
     wlaslFrameBuffer.push({ timestamp, rgba: wlaslCaptureContext.getImageData(0, 0, size, size).data });
-    const cutoff = timestamp - wlaslConfig.clipDurationMs;
+    const retainedDurationMs = isWordClipRecording
+        ? WORD_CLIP_MAX_DURATION_MS + 500
+        : wlaslConfig.clipDurationMs;
+    const cutoff = timestamp - retainedDurationMs;
     while (wlaslFrameBuffer.length > 1 && wlaslFrameBuffer[0].timestamp < cutoff) wlaslFrameBuffer.shift();
 }
 
@@ -1302,7 +1567,7 @@ function reduceHolisticToKslRaw(frame) {
     return reduced;
 }
 
-function prepareInferenceInputs(model, metadata) {
+function prepareInferenceInputs(model, metadata, useFullClip = false) {
     if (metadata?.adapter === 'wlasl_rgb_video') return prepareWlaslInferenceInputs(metadata);
     const sequenceLength = model?.inputs?.[0]?.shape?.[1] || metadata?.frameCount || LEGACY_REQUIRED_FRAMES;
     const frameWidth = model?.inputs?.[0]?.shape?.[2];
@@ -1312,19 +1577,27 @@ function prepareInferenceInputs(model, metadata) {
     if (frameWidth === KSL_FEATURE_SCHEMA.modelFrameWidth) {
         const latestTimestamp = motionTimestampBuffer.at(-1);
         const earliestTimestamp = motionTimestampBuffer[0];
-        if (!Number.isFinite(latestTimestamp) || latestTimestamp - earliestTimestamp < 1900) return null;
+        if (!Number.isFinite(latestTimestamp)) return null;
+        if (!useFullClip && latestTimestamp - earliestTimestamp < 1900) return null;
         const windowStart = latestTimestamp - 2000;
-        let startIndex = motionTimestampBuffer.findIndex(timestamp => timestamp >= windowStart);
+        let startIndex = useFullClip
+            ? 0
+            : motionTimestampBuffer.findIndex(timestamp => timestamp >= windowStart);
         if (startIndex < 0) startIndex = 0;
         const rawFrames = motionBuffer.slice(startIndex).map(reduceHolisticToKslRaw);
         landmarkFrames = prepareKslSequence(rawFrames, { targetFrameCount: sequenceLength });
         visualFrames = resampleFlatFrames(handCropBuffer.slice(startIndex), sequenceLength);
     } else if (frameWidth === 225) {
-        if (motionBuffer.length < sequenceLength) return null;
-        landmarkFrames = legacyHolisticSequence(motionBuffer, sequenceLength);
+        if (!useFullClip && motionBuffer.length < sequenceLength) return null;
+        const sourceFrames = useFullClip
+            ? resampleFlatFrames(motionBuffer, sequenceLength)
+            : motionBuffer;
+        landmarkFrames = legacyHolisticSequence(sourceFrames, sequenceLength);
     } else if (frameWidth === 63) {
-        if (motionBuffer.length < sequenceLength) return null;
-        landmarkFrames = motionBuffer.slice(-sequenceLength);
+        if (!useFullClip && motionBuffer.length < sequenceLength) return null;
+        landmarkFrames = useFullClip
+            ? resampleFlatFrames(motionBuffer, sequenceLength)
+            : motionBuffer.slice(-sequenceLength);
     } else {
         console.error(`Unsupported model input width: ${frameWidth}.`);
         return null;
@@ -1387,8 +1660,22 @@ function resampleFlatFrames(frames, targetLength) {
 }
 
 // run the tensorflow model on the buffered frames to recognize a motion sign
-function inferDynamicGesture() {
+function inferDynamicGesture(finalClip = false) {
     staticSignStreak = 0;
+
+    if (currentTrackingMode !== "asl_letter") {
+        const bufferedDuration = motionTimestampBuffer.at(-1) - motionTimestampBuffer[0];
+        const minimumDurationMs = finalClip && currentTrackingMode === "csl_word"
+            ? 300
+            : WORD_MIN_CAPTURE_MS;
+        if (!Number.isFinite(bufferedDuration) || bufferedDuration < minimumDurationMs) {
+            if (finalClip) {
+                rawExtractionDisplay.innerText = "Clip was too short — record the complete sign";
+                showReadyToSign();
+            }
+            return { accepted: false, reason: "clip_too_short" };
+        }
+    }
 
     if (currentTrackingMode === "asl_word" && wlaslModel) {
         const now = performance.now();
@@ -1420,13 +1707,23 @@ function inferDynamicGesture() {
             rawExtractionDisplay.innerText = "Start the WLASL service on port 8001";
         }
         showDynamicIdle(0, true);
-        return;
+        if (finalClip) {
+            rawExtractionDisplay.innerText = currentTrackingMode === "csl_word"
+                ? "No KSL word model is installed"
+                : "No ASL word model is installed";
+            showReadyToSign();
+        }
+        return { accepted: false, reason: "model_unavailable" };
     }
 
-    const preparedInputs = prepareInferenceInputs(modelToUse, metadataToUse);
+    const preparedInputs = prepareInferenceInputs(modelToUse, metadataToUse, finalClip);
     if (!preparedInputs) {
         showDynamicIdle(0, true);
-        return;
+        if (finalClip) {
+            rawExtractionDisplay.innerText = "Clip was too short — record the complete sign";
+            showReadyToSign();
+        }
+        return { accepted: false, reason: "input_unavailable" };
     }
     let aiPrediction;
 
@@ -1435,7 +1732,7 @@ function inferDynamicGesture() {
     } catch (err) {
         preparedInputs.tensors.forEach(tensor => tensor.dispose());
         console.error("Model inference failed:", err);
-        return;
+        return { accepted: false, reason: "prediction_failed" };
     }
 
     const probabilities = Array.from(aiPrediction.dataSync());
@@ -1481,7 +1778,7 @@ function inferDynamicGesture() {
         }
 
         const avgJointMovement = jointCount > 0 ? totalMovement / jointCount : 0;
-        if (avgJointMovement < 0.003) {
+        if (!finalClip && avgJointMovement < 0.003) {
             isUserIdle = true;
         }
     }
@@ -1515,6 +1812,16 @@ function inferDynamicGesture() {
             ? getDynamicThreshold()
             : CONFIDENCE_THRESHOLD);
 
+    let inferenceResult = {
+        accepted: false,
+        word: votedSign,
+        confidence: confidenceLevel,
+        topChoices: mappedResults.slice(0, 3).map(choice => ({
+            word: choice.word,
+            confidence: choice.conf
+        }))
+    };
+
     if (!isVotedIdle && confidenceLevel > threshold) {
         showDynamicMatch(votedSign, confidenceLevel);
 
@@ -1525,17 +1832,28 @@ function inferDynamicGesture() {
             dynamicSignStreak = 1;
         }
 
-        const requiredHits = (currentTrackingMode === "asl_letter")
+        const requiredHits = finalClip
+            ? 1
+            : (currentTrackingMode === "asl_letter")
             ? (votedSign.toUpperCase() === "J" ? 8 : 12)
             : 4;
 
-        if (dynamicSignStreak >= requiredHits && Date.now() > actionCooldown) {
+        if (dynamicSignStreak >= requiredHits && (finalClip || Date.now() > actionCooldown)) {
             const topChoices = mappedResults
                 .filter(res => !idleWords.includes(res.word.trim().toLowerCase()))
                 .slice(0, 3);
 
             if (topChoices.length > 0) {
                 acceptDynamicWord(topChoices);
+                inferenceResult = {
+                    accepted: true,
+                    word: topChoices[0].word,
+                    confidence: topChoices[0].conf,
+                    topChoices: topChoices.map(choice => ({
+                        word: choice.word,
+                        confidence: choice.conf
+                    }))
+                };
             }
 
             dynamicSignStreak = 0;
@@ -1545,10 +1863,15 @@ function inferDynamicGesture() {
         }
     } else {
         showDynamicIdle(confidenceLevel, isVotedIdle);
+        if (finalClip) {
+            rawExtractionDisplay.innerText = "No confident word — try recording again";
+            showReadyToSign();
+        }
     }
 
     preparedInputs.tensors.forEach(tensor => tensor.dispose());
     aiPrediction.dispose();
+    return inferenceResult;
 }
 
 // for still hand shapes (like most of the alphabet), use fingerpose instead of the AI model
@@ -1733,6 +2056,7 @@ function showStaticMatch(letter, score) {
     confidenceProgressBar.style.background = "cyan";
     guessLabelDisplay.innerText = `Pose: ${letter} (Streak: ${staticSignStreak}/3)`;
     confidencePctDisplay.innerText = percent + "%";
+    showCaptureProgress((staticSignStreak / 3) * 100);
 }
 
 function resetStaticUI() {
@@ -1772,6 +2096,7 @@ function acceptStaticLetter(letter) {
     }
 
     actionCooldown = Date.now() + COOLDOWN_DURATION_MS;
+    showSignCaptured(letter);
     staticSignStreak = 0;
 }
 
@@ -1823,6 +2148,8 @@ function acceptDynamicWord(options) {
 
     syncSentenceState();
     actionCooldown = Date.now() + COOLDOWN_DURATION_MS;
+    if (!isWordMode()) requireNeutralReset();
+    showSignCaptured(primaryWord);
 }
 
 function resetInactivity() {
@@ -1852,5 +2179,6 @@ function resetInactivity() {
             guessLabelDisplay.innerText = "None";
         }
         confidencePctDisplay.innerText = "0%";
+        if (signTimingState !== "ready") showReadyToSign();
     }
 }

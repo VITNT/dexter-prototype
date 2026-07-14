@@ -44,9 +44,16 @@ After installing the checkpoint and Python requirements, run:
 ```
 
 Check `http://127.0.0.1:8001/health`. It should report `"status":"ready"`.
-The live ASL-word client will use a rolling sign window; 300 ms is reserved for
-prediction checks/cooldown, not used as the full sign duration. Pausing or
-resuming the camera clears all cached recognition frames.
+ASL Words and KSL Words use explicit video clips rather than overlapping live
+prediction windows. Start the camera for framing, press **Record Sign**, and
+perform one complete isolated sign during the 10-second recording window (or
+press **Stop Recording** early). The entire clip is uniformly sampled to the
+model's required frame count and classified once. ASL Spelling remains live.
+
+Multiword KSL clips are split on brief hands-down pauses and classified with the
+existing word models. ASL has an optional WLASL-pretrained continuous CTC path;
+see [docs/continuous-recognition.md](docs/continuous-recognition.md) for training,
+annotation, and deployment instructions.
 
 ## KSL v2 Pipeline
 
@@ -76,7 +83,7 @@ After training, place the four downloaded files at the project root:
 - `csl_labels.json`
 - `csl_model_metadata.json`
 
-The live predictor automatically recognizes the new `[60,700]` model and its
+The recorded-clip predictor automatically recognizes the new `[60,700]` model and its
 optional `[60,24,48,1]` hand-crop input. Existing 30-frame LSTM sub-models stay
 available only as a fallback when the unified graph model is absent.
 
@@ -99,4 +106,6 @@ node src/pipeline/ksl_feature_pipeline.test.mjs
 node src/pipeline/trainer_feature_compat.test.mjs
 node src/pipeline/ui_contract.test.mjs
 node src/pipeline/wlasl_video_pipeline.test.mjs
+node src/pipeline/pause_segmentation.test.mjs
+python3 -m unittest asl_service.tests.test_ctc_decoder
 ```

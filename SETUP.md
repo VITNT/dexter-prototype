@@ -82,6 +82,11 @@ Leave this terminal running. Open <http://127.0.0.1:8001/health> and confirm:
 
 The response includes other fields; `status` is the important one.
 
+For multiword ASL, also train or install
+`asl_service/models/wlasl300_ctc.pt`. The health response then reports
+`"sequenceModelReady": true`. Without it, ASL Words remains on the isolated
+WLASL fallback. See `docs/continuous-recognition.md`.
+
 ### 2. Start the website
 
 In VS Code, open `index.html` and click **Go Live**. Live Server may use port
@@ -114,4 +119,3 @@ Also confirm the official repository exists at `third_party/WLASL/`.
 - Confirm the backend terminal is still running.
 - Open <http://127.0.0.1:8001/health>.
 - Hard-refresh the website with `Ctrl+Shift+R`.
-
