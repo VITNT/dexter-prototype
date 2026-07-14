@@ -5,7 +5,15 @@ from functools import lru_cache
 
 import torch
 
-from .config import CHECKPOINT_PATH, CLASS_LIST_PATH, NUM_CLASSES, OFFICIAL_I3D_ROOT
+from .config import (
+    CHECKPOINT_PATH,
+    CLASS_LIST_PATH,
+    MIN_MOTION_SCORE,
+    MIN_TOP1_CONFIDENCE,
+    MIN_TOP1_MARGIN,
+    NUM_CLASSES,
+    OFFICIAL_I3D_ROOT,
+)
 from .preprocessing import prepare_video
 
 
@@ -49,21 +57,35 @@ def load_model():
 def predict_video(video_path: str, top_k: int = 3) -> dict:
     labels = load_labels()
     model, device = load_model()
-    clip = prepare_video(video_path).to(device)
+    clip, motion_score = prepare_video(video_path)
+    clip = clip.to(device)
 
     with torch.inference_mode():
         per_frame_logits = model(clip)
         logits = per_frame_logits.max(dim=2).values[0]
         probabilities = torch.softmax(logits, dim=0)
-        scores, indices = probabilities.topk(min(top_k, NUM_CLASSES))
+        scores, indices = probabilities.topk(min(max(2, top_k), NUM_CLASSES))
 
     predictions = [
         {"word": labels[index], "confidence": float(score)}
         for score, index in zip(scores.cpu().tolist(), indices.cpu().tolist())
     ]
+    margin = predictions[0]["confidence"] - predictions[1]["confidence"]
+    if motion_score < MIN_MOTION_SCORE:
+        rejection_reason = "no_motion"
+    elif predictions[0]["confidence"] < MIN_TOP1_CONFIDENCE:
+        rejection_reason = "low_confidence"
+    elif margin < MIN_TOP1_MARGIN:
+        rejection_reason = "ambiguous"
+    else:
+        rejection_reason = None
+
     return {
+        "detected": rejection_reason is None,
         "word": predictions[0]["word"],
         "confidence": predictions[0]["confidence"],
+        "margin": margin,
+        "motionScore": motion_score,
+        "rejectionReason": rejection_reason,
         "predictions": predictions,
     }
-

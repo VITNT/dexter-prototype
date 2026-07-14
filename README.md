@@ -45,8 +45,12 @@ After installing the checkpoint and Python requirements, run:
 
 Check `http://127.0.0.1:8001/health`. It should report `"status":"ready"`.
 The live ASL-word client will use a rolling sign window; 300 ms is reserved for
-prediction checks/cooldown, not used as the full sign duration. Pausing or
-resuming the camera clears all cached recognition frames.
+prediction checks/cooldown, not used as the full sign duration. Each 2.5-second
+capture is decoded into a motion-focused, contiguous 64-frame window using the
+same 256-to-224 spatial preprocessing as the released WLASL I3D checkpoint.
+Because WLASL has no idle class, motion, confidence, and top-two-margin gates
+reject no-sign windows instead of forcing an arbitrary vocabulary word.
+Pausing or resuming the camera clears all cached recognition frames.
 
 ## KSL v2 Pipeline
 
