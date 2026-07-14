@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import CHECKPOINT_PATH, NUM_CLASSES
 from .inference import load_labels, predict_video
 
-app = FastAPI(title="Dexter WLASL300 inference", version="0.1.0")
+app = FastAPI(title="Dexter WLASL300 inference", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[],

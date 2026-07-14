@@ -82,7 +82,8 @@ const REQUIRED_FRAMES = LEGACY_REQUIRED_FRAMES;
 const COOLDOWN_DURATION_MS = 1500;
 const CONFIDENCE_THRESHOLD = 0.90;
 const WLASL_API_URL = 'http://127.0.0.1:8001';
-const WLASL_CLIP_WINDOW_MS = 1800;
+// Match the 64-frame WLASL training window at typical 25-30 FPS.
+const WLASL_CLIP_WINDOW_MS = 2500;
 const WLASL_WORD_COOLDOWN_MS = 300;
 const WLASL_BACKEND_CONFIDENCE = 0.55;
 
@@ -688,7 +689,12 @@ async function submitWlaslClip(clip, generation) {
         if (generation !== wlaslCaptureGeneration || currentTrackingMode !== "asl_word") return;
 
         const predictions = Array.isArray(result.predictions) ? result.predictions : [];
-        if (result.confidence >= WLASL_BACKEND_CONFIDENCE && predictions.length) {
+        // New services make an explicit closed-set/no-sign decision. Keep the
+        // confidence fallback so the browser remains compatible with an older
+        // service while it is being restarted.
+        const detected = result.detected === true
+            || (result.detected == null && result.confidence >= WLASL_BACKEND_CONFIDENCE);
+        if (detected && predictions.length) {
             stopWlaslCaptureLoop();
             showDynamicMatch(result.word, result.confidence);
             acceptDynamicWord(predictions);
@@ -698,7 +704,9 @@ async function submitWlaslClip(clip, generation) {
             }, WLASL_WORD_COOLDOWN_MS);
         } else {
             showDynamicIdle(result.confidence || 0, true);
-            rawExtractionDisplay.innerText = "No confident ASL word yet";
+            rawExtractionDisplay.innerText = result.rejectionReason === 'no_motion'
+                ? "Waiting for a complete signâ€¦"
+                : "No confident ASL word yet";
         }
     } catch (error) {
         console.error("WLASL prediction failed:", error);
