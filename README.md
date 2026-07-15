@@ -84,6 +84,21 @@ The live predictor automatically recognizes the new `[60,700]` model and its
 optional `[60,24,48,1]` hand-crop input. Existing 30-frame LSTM sub-models stay
 available only as a fallback when the unified graph model is absent.
 
+When no project-trained KSL v2 bundle is installed, the translator loads the
+released 75-class whole-word model from `models/ksl/legacy-word-v1/`. It uses
+30 frames of wrist-relative two-hand landmarks and appends the recognized Khmer
+word directly to the sentence box. A released 42-class static LandmarkNet is a
+final fallback for held hand forms. Its matching reference images appear in the
+KSL dictionary. Source and license details are recorded in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+The linked upstream repository does not publish the raw 22,000-image or
+1,900-video datasets described by its documentation. Its 12 dataset collage
+images, 41 form JPGs, and 18 single example videos are not sufficient to train
+or independently validate the KSL v2 temporal model. See
+[`docs/ksl-external-resources.md`](docs/ksl-external-resources.md) for the
+compatibility audit and the additional data needed for temporal retraining.
+
 The crop branch is a compact browser-trainable appearance stream, not a
 pretrained WLASL video backbone. WLASL now has a separate RGB-video bundle at
 `models/asl/wlasl/`; see its README and manifest for the browser model contract.
@@ -100,6 +115,9 @@ Run the deterministic feature tests with:
 
 ```bash
 node src/pipeline/ksl_feature_pipeline.test.mjs
+node src/pipeline/ksl_legacy_word_pipeline.test.mjs
+node src/pipeline/ksl_legacy_model_asset.test.mjs
+node src/pipeline/ksl_static_classifier.test.mjs
 node src/pipeline/trainer_feature_compat.test.mjs
 node src/pipeline/ui_contract.test.mjs
 node src/pipeline/wlasl_video_pipeline.test.mjs

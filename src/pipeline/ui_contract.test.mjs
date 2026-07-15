@@ -39,7 +39,7 @@ const translatorScript = fs.readFileSync(new URL("../../script.js", import.meta.
 const translatorStyles = fs.readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
 
 assert.match(translatorHtml, /id=["']captureCountdown["']/, "Translator must expose the pre-capture countdown.");
-assert.match(translatorScript, /CAPTURE_COUNTDOWN_STEP_MS\s*=\s*500/, "Countdown steps must allow 500 ms to react.");
+assert.match(translatorScript, /CAPTURE_COUNTDOWN_STEP_MS\s*=\s*300/, "Countdown numbers must advance every 300 ms.");
 assert.match(translatorScript, /STATIC_HOLD_DURATION_MS\s*=\s*260/, "Static letters must not require a long hold.");
 assert.match(translatorScript, /STATIC_RELEASE_DURATION_MS\s*=\s*160/, "Different letters must rearm quickly.");
 assert.match(translatorScript, /MIN_CAPTURE_HAND_CONFIDENCE\s*=\s*0\.65/, "Landmark modes must require reliable hand tracking.");
@@ -49,12 +49,20 @@ assert.doesNotMatch(translatorScript, /predict-letter/, "ASL Letters must not de
 assert.doesNotMatch(translatorScript, /canonicalizeHandLandmarks|classifyClosedFistThumb/, "Static letters must not use landmark geometry rules.");
 assert.doesNotMatch(translatorHtml, /onnxruntime|ort\.min\.js/, "ASL Letters must not load a second inference runtime.");
 assert.match(translatorScript, /dynamicLetterPathScore/, "Ordinary whole-hand movement must not trigger Z.");
+assert.match(translatorScript, /DYNAMIC_LETTER_REQUIRED_HITS\s*=\s*4/, "J/Z must use four confirmation hits.");
 assert.match(
   translatorScript,
-  /requiresTrackedHands\s*=\s*currentTrackingMode\s*!==\s*["']asl_word["']/,
-  "WLASL recording must not depend on MediaPipe hand tracking."
+  /const visualOnly\s*=\s*currentTrackingMode\s*===\s*["']asl_word["']/,
+  "The ASL-word countdown must be visual-only."
+);
+assert.match(
+  translatorScript,
+  /const requiresTrackedHands\s*=\s*!visualOnly/,
+  "Only landmark-gated modes may wait for MediaPipe hand tracking."
 );
 assert.match(translatorScript, /lockRecognition:\s*false/, "WLASL results must not use the timer-test hand release gate.");
+assert.doesNotMatch(translatorScript, /if \(!captureIsActive \|\| !wlaslBackendReady/, "Countdown state must not gate ASL-word recording.");
+assert.match(translatorScript, /if \(visualOnly\) return;/, "ASL-word countdown completion must not clear recognition state.");
 assert.match(translatorScript, /if \(!captureIsActive\)/, "Frame processing must be gated until capture starts.");
 assert.match(translatorStyles, /\.video-container\.is-dimmed::after/, "Inactive camera states must be visibly dimmed.");
 
