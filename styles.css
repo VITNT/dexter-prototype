@@ -129,6 +129,52 @@ body {
     /* keep pitch black behind video */
 }
 
+/* The live image is clear only while frames are actively being captured. */
+.video-container::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    background: rgba(0, 0, 0, 0);
+    pointer-events: none;
+    transition: background-color 160ms ease;
+}
+
+.video-container.is-dimmed::after {
+    background: rgba(0, 0, 0, 0.52);
+}
+
+.capture-countdown {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    text-align: center;
+    text-shadow: 0 4px 20px rgba(0, 0, 0, 0.9);
+    pointer-events: none;
+}
+
+.capture-countdown[hidden] {
+    display: none;
+}
+
+.capture-countdown span {
+    font-size: clamp(88px, 22vw, 160px);
+    font-weight: 800;
+    line-height: 0.9;
+}
+
+.capture-countdown small {
+    margin-top: 14px;
+    font-size: clamp(16px, 3vw, 24px);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
 /* Signing guidance shown over the camera so timing never depends on guesswork. */
 .capture-guide {
     --capture-color: #9aa0a6;
@@ -150,6 +196,10 @@ body {
 
 .capture-guide[data-state="waiting"] {
     --capture-color: #fbbc04;
+}
+
+.capture-guide[data-state="countdown"] {
+    --capture-color: #ffca28;
 }
 
 .capture-guide[data-state="ready"] {

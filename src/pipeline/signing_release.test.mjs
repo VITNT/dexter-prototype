@@ -51,21 +51,21 @@ assert.equal(
 function pauseAtFps(fps) {
     let elapsedMs = 0;
     const deltaMs = 1000 / fps;
-    while (elapsedMs < 450) {
+    while (elapsedMs < 500) {
         elapsedMs = updatePauseProgress({
             elapsedMs,
             deltaMs,
             isPaused: true,
-            durationMs: 450
+            durationMs: 500
         });
     }
     return elapsedMs;
 }
 
-assert.equal(pauseAtFps(15), 450, "A 15 FPS camera should complete the pause timer.");
-assert.equal(pauseAtFps(30), 450, "A 30 FPS camera should complete the pause timer.");
+assert.equal(pauseAtFps(15), 500, "A 15 FPS camera should complete the 500 ms reaction timer.");
+assert.equal(pauseAtFps(30), 500, "A 30 FPS camera should complete the 500 ms reaction timer.");
 assert.equal(
-    updatePauseProgress({ elapsedMs: 300, deltaMs: 100, isPaused: false, durationMs: 450 }),
+    updatePauseProgress({ elapsedMs: 300, deltaMs: 100, isPaused: false, durationMs: 500 }),
     100,
     "Continued motion should drain the rearm timer instead of completing it."
 );

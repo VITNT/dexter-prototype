@@ -67,6 +67,11 @@
           <div class="video-container">
             <video id="webcamFeed" autoplay playsinline muted webkit-playsinline></video>
             <canvas class="overlayCanvas"></canvas>
+            <div id="captureCountdown" class="capture-countdown" aria-live="assertive" aria-atomic="true"
+              hidden>
+              <span id="captureCountdownNumber">3</span>
+              <small>Capture starts</small>
+            </div>
           </div>
 
           <div id="captureGuide" class="capture-guide" data-state="off" role="status" aria-live="polite"
