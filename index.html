@@ -69,6 +69,19 @@
             <canvas class="overlayCanvas"></canvas>
           </div>
 
+          <div id="captureGuide" class="capture-guide" data-state="off" role="status" aria-live="polite"
+            aria-atomic="true">
+            <div class="capture-guide-heading">
+              <span class="capture-guide-indicator" aria-hidden="true"></span>
+              <span id="captureStateLabel">Camera off</span>
+            </div>
+            <div id="captureStateDetail" class="capture-guide-detail">Start the camera when you are ready.</div>
+            <div id="captureProgressTrack" class="capture-progress-track" role="progressbar"
+              aria-label="Sign capture progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="captureProgressBar" class="capture-progress-bar"></div>
+            </div>
+          </div>
+
 
           <div class="debug-panel">
             <div class="debug-text">
