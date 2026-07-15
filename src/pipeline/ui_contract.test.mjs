@@ -34,4 +34,28 @@ for (const page of pages) {
   }
 }
 
+const translatorHtml = fs.readFileSync(new URL("../../index.html", import.meta.url), "utf8");
+const translatorScript = fs.readFileSync(new URL("../../script.js", import.meta.url), "utf8");
+const translatorStyles = fs.readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+
+assert.match(translatorHtml, /id=["']captureCountdown["']/, "Translator must expose the pre-capture countdown.");
+assert.match(translatorScript, /CAPTURE_COUNTDOWN_STEP_MS\s*=\s*500/, "Countdown steps must allow 500 ms to react.");
+assert.match(translatorScript, /STATIC_HOLD_DURATION_MS\s*=\s*260/, "Static letters must not require a long hold.");
+assert.match(translatorScript, /STATIC_RELEASE_DURATION_MS\s*=\s*160/, "Different letters must rearm quickly.");
+assert.match(translatorScript, /MIN_CAPTURE_HAND_CONFIDENCE\s*=\s*0\.65/, "Landmark modes must require reliable hand tracking.");
+assert.match(translatorScript, /letterSessionCountdownComplete/, "ASL Letters must remember its one session countdown.");
+assert.match(translatorScript, /gestureEstimator\.estimate/, "ASL Letters must use the browser-only Fingerpose classifier.");
+assert.doesNotMatch(translatorScript, /predict-letter/, "ASL Letters must not depend on the Python inference backend.");
+assert.doesNotMatch(translatorScript, /canonicalizeHandLandmarks|classifyClosedFistThumb/, "Static letters must not use landmark geometry rules.");
+assert.doesNotMatch(translatorHtml, /onnxruntime|ort\.min\.js/, "ASL Letters must not load a second inference runtime.");
+assert.match(translatorScript, /dynamicLetterPathScore/, "Ordinary whole-hand movement must not trigger Z.");
+assert.match(
+  translatorScript,
+  /requiresTrackedHands\s*=\s*currentTrackingMode\s*!==\s*["']asl_word["']/,
+  "WLASL recording must not depend on MediaPipe hand tracking."
+);
+assert.match(translatorScript, /lockRecognition:\s*false/, "WLASL results must not use the timer-test hand release gate.");
+assert.match(translatorScript, /if \(!captureIsActive\)/, "Frame processing must be gated until capture starts.");
+assert.match(translatorStyles, /\.video-container\.is-dimmed::after/, "Inactive camera states must be visibly dimmed.");
+
 console.log("UI contracts passed: unique IDs, callable click handlers, and local scripts are present.");
