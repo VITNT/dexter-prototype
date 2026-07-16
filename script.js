@@ -1172,7 +1172,9 @@ function setCaptureGuide(state, label, detail, progress = 0) {
 }
 
 function syncCameraCaptureAppearance() {
-    const wordModeIsIdle = currentTrackingMode === "asl_word" && isDetecting && !latestHandsVisible;
+    const wordModeIsIdle = (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word")
+        && isDetecting
+        && !latestHandsVisible;
     const shouldDim = Boolean(cameraStream) && (wordModeIsIdle || !captureIsActive);
     webcamContainer?.classList.toggle('is-dimmed', shouldDim);
 }
@@ -1217,11 +1219,12 @@ function prepareForNextCapture() {
 function showCaptureCountdown(value) {
     if (captureCountdownNumber) captureCountdownNumber.textContent = String(value);
     if (captureCountdown) captureCountdown.hidden = false;
+    const isWordMode = currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word";
     setCaptureGuide(
         "countdown",
-        currentTrackingMode === "asl_word" ? `Recognition active · ${value}` : `Capture starts in ${value}`,
-        currentTrackingMode === "asl_word"
-            ? "Visual timing only — every frame is still being recorded and analyzed."
+        `Capture starts in ${value}`,
+        isWordMode
+            ? "Hold your starting position and keep your hands visible."
             : "Hold your starting position. Frames are not being saved yet.",
         (CAPTURE_COUNTDOWN_START - value) / CAPTURE_COUNTDOWN_START
     );
@@ -1729,13 +1732,13 @@ async function processVideoFrames() {
         latestHandSignature = buildHandSignature(detectedHands);
         const handsWereVisible = latestHandsVisible;
         latestHandsVisible = hasVisibleHandLandmarks(detectedHands);
+        syncCameraCaptureAppearance();
 
         if (currentTrackingMode === "asl_word" && wlaslBackendReady) {
             // The backend consumes the camera clip directly; do not also run
             // the legacy landmark word model or let its idle state overwrite UI.
             // Keep the recorder continuous, but discard clips that do not
             // contain enough hand-tracked frames before calling WLASL.
-            syncCameraCaptureAppearance();
             if (!wlaslRecorder) startWlaslCaptureLoop();
             if (latestHandsVisible && wlaslRecorder?.state === 'recording') {
                 wlaslTrackedHandFrames++;
