@@ -88,14 +88,49 @@ assert.match(
 );
 assert.match(
   translatorScript,
-  /const requiresTrackedHands\s*=\s*!visualOnly/,
-  "Only landmark-gated modes may wait for MediaPipe hand tracking."
+  /const isWordMode\s*=\s*currentTrackingMode\s*===\s*["']asl_word["']\s*\|\|\s*currentTrackingMode\s*===\s*["']csl_word["']/,
+  "ASL and KSL Words must share one countdown presentation."
+);
+assert.doesNotMatch(
+  translatorScript,
+  /Recognition active\s*·/,
+  "ASL Words must not use a different countdown label from KSL Words."
+);
+assert.match(
+  translatorScript,
+  /\|\| !latestHandsVisible\s*\n\s*\) return;/,
+  "Every visible countdown, including ASL Words, must wait for tracked hands."
+);
+assert.match(
+  translatorScript,
+  /if \(!latestHandsVisible\) \{\s*if \(captureCountdownTimer\) cancelCaptureCountdown\(\);[\s\S]{0,160}showWaitingForInputGuide\(\);/,
+  "ASL Words must cancel its visual timer and return to waiting when idle."
 );
 assert.match(translatorScript, /lockRecognition:\s*false/, "WLASL results must not use the timer-test hand release gate.");
 assert.doesNotMatch(translatorScript, /if \(!captureIsActive \|\| !wlaslBackendReady/, "Countdown state must not gate ASL-word recording.");
 assert.match(translatorScript, /if \(visualOnly\) return;/, "ASL-word countdown completion must not clear recognition state.");
+assert.match(
+  translatorScript,
+  /shouldSubmitAslWordClip\(\{ clipSize: clip\.size, trackedHandFrames \}\)/,
+  "ASL Words must reject clips that contain no sustained hand tracking before inference."
+);
+assert.match(
+  translatorScript,
+  /else if \(latestHandsVisible\) \{\s*analyzeMovement\(detectedHands, detectedPose, currentTimeMs\);/,
+  "Landmark word recognition, including KSL, must never analyze pose-only frames."
+);
 assert.match(translatorScript, /if \(!captureIsActive\)/, "Frame processing must be gated until capture starts.");
 assert.match(translatorStyles, /\.video-container\.is-dimmed::after/, "Inactive camera states must be visibly dimmed.");
+assert.match(
+  translatorScript,
+  /const wordModeIsIdle\s*=\s*\(currentTrackingMode\s*===\s*["']asl_word["']\s*\|\|\s*currentTrackingMode\s*===\s*["']csl_word["']\)/,
+  "ASL and KSL word modes must both dim the camera when no hands are visible."
+);
+assert.match(
+  translatorScript,
+  /latestHandsVisible\s*=\s*hasVisibleHandLandmarks\(detectedHands\);\s*syncCameraCaptureAppearance\(\);/,
+  "Camera dimming must update immediately after each hand-presence check."
+);
 assert.match(translatorHtml, /id=["']speakTranslationBtn["']/, "Translator must expose a final-translation speech control.");
 assert.match(translatorScript, /new SpeechSynthesisUtterance\(speakableTranslation\)/, "Speech must use the final interpreted text.");
 assert.match(translatorScript, /setFinalTranslation\(translation[^;]+speakable:/, "Only a successful interpretation may enable speech.");
