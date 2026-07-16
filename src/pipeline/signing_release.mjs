@@ -64,3 +64,19 @@ export function updatePauseProgress({
         ? Math.min(durationMs, elapsedMs + delta)
         : Math.max(0, elapsedMs - delta * movementDecay);
 }
+
+// Dynamic letters finish in a valid static handshape (J finishes as I and Z
+// finishes as D). A pause is therefore not a release: the hand must leave that
+// final shape continuously before static-letter recognition can be armed again.
+export function updateReleaseProgress({
+    elapsedMs,
+    deltaMs,
+    isReleased,
+    durationMs,
+    maxTickMs = 100
+}) {
+    const delta = Math.max(0, Math.min(maxTickMs, deltaMs));
+    return isReleased
+        ? Math.min(durationMs, elapsedMs + delta)
+        : 0;
+}

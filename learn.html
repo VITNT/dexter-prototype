@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <title>Dexter</title>
+    <title>SignDex | ASL</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="icon" type="image/x-icon" href="logo.png" />
   </head>
@@ -19,7 +19,7 @@
       >
         <img
           src="logo.png"
-          alt="Dexter Logo"
+          alt="Dexter logo"
           width="48"
           height="48"
           style="border-radius: 6px"
@@ -29,14 +29,19 @@
       <nav class="dex-nav">
         <a href="index.html" class="dex-nav-item">Translate</a>
         <div class="dex-nav-dropdown">
-          <button class="dex-nav-item active">Learn ▼</button>
+          <button
+            class="dex-nav-item dex-nav-dropdown-trigger active"
+            type="button"
+            aria-haspopup="true"
+          >
+            <span>Learn</span>
+            <svg class="dex-nav-chevron" aria-hidden="true" viewBox="0 0 20 20">
+              <path d="m5.5 7.5 4.5 4.5 4.5-4.5" />
+            </svg>
+          </button>
           <div class="dex-nav-dropdown-content">
-            <a href="learn.html?lang=asl" class="dex-nav-dropdown-item"
-              >ASL Dictionary</a
-            >
-            <a href="learn.html?lang=csl" class="dex-nav-dropdown-item"
-              >KSL Dictionary</a
-            >
+            <a href="learn.html?lang=asl" class="dex-nav-dropdown-item">ASL</a>
+            <a href="learn.html?lang=csl" class="dex-nav-dropdown-item">KSL</a>
           </div>
         </div>
       </nav>
@@ -62,10 +67,18 @@
     <main class="dex-main">
       <div class="dictionary-container">
         <div class="dictionary-header">
-          <div style="display: flex; flex-direction: column; gap: 8px">
-            <h1 class="dictionary-title" id="dictTitle">
-              Sign Language Dictionary
-            </h1>
+          <div class="dictionary-heading">
+            <div class="dictionary-title-row">
+              <h1 class="dictionary-title">SignDex</h1>
+              <div
+                class="dictionary-language-indicator"
+                id="languageIndicator"
+                role="status"
+                aria-live="polite"
+              >
+                <span id="activeLanguageCode">ASL</span>
+              </div>
+            </div>
             <label class="flashcard-switch-wrapper">
               <div class="custom-switch">
                 <input
@@ -83,6 +96,7 @@
             <button
               class="dict-tab active"
               id="tab-asl"
+              aria-pressed="true"
               onclick="switchLanguage('asl')"
             >
               ASL
@@ -90,6 +104,7 @@
             <button
               class="dict-tab"
               id="tab-csl"
+              aria-pressed="false"
               onclick="switchLanguage('csl')"
             >
               KSL

@@ -9,3 +9,4 @@ __pycache__/
 .venv/
 third_party/WLASL/
 data/external/
+.vscode
