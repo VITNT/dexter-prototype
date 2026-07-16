@@ -1,5 +1,5 @@
 import { prepareSequenceForModel } from "./sequence_preprocessing.mjs";
-import { KSL_SCHEMA_VERSION, prepareKslSequence } from "./ksl_feature_pipeline.mjs";
+import { prepareCadtCslSequence } from "./csl_cadt_word_pipeline.mjs";
 import { translateLabel } from "./model_registry.mjs";
 
 export async function classifyRecordedSign({
@@ -22,10 +22,8 @@ export async function classifyRecordedSign({
 
   await waitForVideoMetadata(video);
   const rawFrames = await extractSequenceFromVideo(video, trackers.extractFrame, { fps, maxSeconds });
-  const preparedFrames = modelConfig?.schemaVersion === KSL_SCHEMA_VERSION
-    ? prepareKslSequence(rawFrames, {
-        targetFrameCount: modelConfig?.frameCount || 60
-      })
+  const preparedFrames = modelConfig?.adapter === "cadt_csl_hands_v1"
+    ? prepareCadtCslSequence(rawFrames, modelConfig?.frameCount || 30)
     : prepareSequenceForModel(rawFrames, {
         targetFrameCount: modelConfig?.frameCount || 30,
         expectedFrameWidth: modelConfig?.frameWidth || 225

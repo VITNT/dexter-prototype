@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const pages = [
-  { html: "index.html", script: "script.js" },
-  { html: "recorder.html", script: "recorder.js" },
-  { html: "trainer.html", script: "trainer.js" }
+  { html: "index.html", script: "script.js" }
 ];
 
 for (const page of pages) {
@@ -39,6 +37,7 @@ const translatorScript = fs.readFileSync(new URL("../../script.js", import.meta.
 const translatorStyles = fs.readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
 
 assert.match(translatorHtml, /id=["']captureCountdown["']/, "Translator must expose the pre-capture countdown.");
+assert.doesNotMatch(translatorHtml, /id=["']cslStageSelect["']/, "CSL must use one fixed recognition pipeline without a stage selector.");
 assert.match(translatorScript, /CAPTURE_COUNTDOWN_STEP_MS\s*=\s*300/, "Countdown numbers must advance every 300 ms.");
 assert.match(translatorScript, /STATIC_HOLD_DURATION_MS\s*=\s*260/, "Static letters must not require a long hold.");
 assert.match(translatorScript, /STATIC_RELEASE_DURATION_MS\s*=\s*160/, "Different letters must rearm quickly.");
@@ -89,12 +88,12 @@ assert.match(
 assert.match(
   translatorScript,
   /const isWordMode\s*=\s*currentTrackingMode\s*===\s*["']asl_word["']\s*\|\|\s*currentTrackingMode\s*===\s*["']csl_word["']/,
-  "ASL and KSL Words must share one countdown presentation."
+  "ASL and CSL Words must share one countdown presentation."
 );
 assert.doesNotMatch(
   translatorScript,
   /Recognition active\s*·/,
-  "ASL Words must not use a different countdown label from KSL Words."
+  "ASL Words must not use a different countdown label from CSL Words."
 );
 assert.match(
   translatorScript,
@@ -107,6 +106,23 @@ assert.match(
   "ASL Words must cancel its visual timer and return to waiting when idle."
 );
 assert.match(translatorScript, /lockRecognition:\s*false/, "WLASL results must not use the timer-test hand release gate.");
+assert.match(translatorScript, /predictCadtCslWindows/, "CSL must average bounded shifted capture windows.");
+assert.doesNotMatch(translatorHtml, /value=["']short["']/, "The unreliable short CSL mode must not be offered.");
+assert.match(translatorScript, /interpolateCadtCslFrame/, "CSL capture must maintain a 30-sample-per-second landmark timeline.");
+assert.match(translatorScript, /showCslRejectedPrediction/, "Rejected CSL predictions must explain confidence and margin failures.");
+assert.match(translatorScript, /lastCslTopGuessDiagnostic/, "The latest rejected CSL prediction must persist in Top Guess.");
+assert.doesNotMatch(translatorScript, /window\.selectCslStage\s*=\s*function/, "CSL must not expose obsolete runtime-stage switching.");
+assert.match(translatorScript, /findStaticAgreement/, "Static CSL may assist only through explicit label agreement.");
+assert.doesNotMatch(
+  translatorScript,
+  /currentTrackingMode\s*===\s*["']csl_word["'][\s\S]{0,80}ensurePoseTracker\(\)/,
+  "CSL must not initialize the body-pose tracker."
+);
+assert.match(
+  translatorScript,
+  /if \(currentTrackingMode === ["']asl_word["'] && poseTracker\)/,
+  "Pose detection must remain isolated to the optional ASL landmark path."
+);
 assert.doesNotMatch(translatorScript, /if \(!captureIsActive \|\| !wlaslBackendReady/, "Countdown state must not gate ASL-word recording.");
 assert.match(translatorScript, /if \(visualOnly\) return;/, "ASL-word countdown completion must not clear recognition state.");
 assert.match(
@@ -117,14 +133,14 @@ assert.match(
 assert.match(
   translatorScript,
   /else if \(latestHandsVisible\) \{\s*analyzeMovement\(detectedHands, detectedPose, currentTimeMs\);/,
-  "Landmark word recognition, including KSL, must never analyze pose-only frames."
+  "Landmark word recognition, including CSL, must never analyze pose-only frames."
 );
 assert.match(translatorScript, /if \(!captureIsActive\)/, "Frame processing must be gated until capture starts.");
 assert.match(translatorStyles, /\.video-container\.is-dimmed::after/, "Inactive camera states must be visibly dimmed.");
 assert.match(
   translatorScript,
   /const wordModeIsIdle\s*=\s*\(currentTrackingMode\s*===\s*["']asl_word["']\s*\|\|\s*currentTrackingMode\s*===\s*["']csl_word["']\)/,
-  "ASL and KSL word modes must both dim the camera when no hands are visible."
+  "ASL and CSL word modes must both dim the camera when no hands are visible."
 );
 assert.match(
   translatorScript,

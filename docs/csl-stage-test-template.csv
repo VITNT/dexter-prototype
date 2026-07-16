@@ -1,0 +1,3 @@
+pipeline,expected_label,attempt,predicted_label,confidence,outcome,notes
+default,,1,,,correct|wrong|rejected,
+default,idle,1,,,correct_rejection|false_activation,

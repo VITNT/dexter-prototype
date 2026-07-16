@@ -1,0 +1,13 @@
+*
+!asl_service/
+!asl_service/**
+!third_party/
+!third_party/WLASL/
+!third_party/WLASL/code/
+!third_party/WLASL/code/I3D/
+!third_party/WLASL/code/I3D/pytorch_i3d.py
+!third_party/WLASL/code/I3D/preprocess/
+!third_party/WLASL/code/I3D/preprocess/wlasl_class_list.txt
+asl_service/tests/
+asl_service/**/__pycache__/
+asl_service/**/*.pyc

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -7,14 +8,25 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import CHECKPOINT_PATH, NUM_CLASSES
+from .assets import ensure_wlasl_assets
+from .config import CHECKPOINT_PATH, MAX_UPLOAD_BYTES, NUM_CLASSES
 from .inference import load_labels, predict_video
 
-app = FastAPI(title="Dexter WLASL300 inference", version="0.2.0")
+local_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
+configured_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("DEXTER_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+app = FastAPI(title="Dexter WLASL300 inference", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origins=[*local_origins, *configured_origins],
+    allow_origin_regex=os.getenv(
+        "DEXTER_ALLOWED_ORIGIN_REGEX",
+        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    ),
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -22,9 +34,11 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> dict:
+@app.get("/api/asl/health")
+async def health() -> dict:
     labels_ready = False
     try:
+        await ensure_wlasl_assets()
         labels_ready = len(load_labels()) == NUM_CLASSES
     except (OSError, RuntimeError, ValueError):
         pass
@@ -38,15 +52,24 @@ def health() -> dict:
 
 
 @app.post("/predict")
+@app.post("/api/asl/predict")
 async def predict(video: UploadFile = File(...)) -> dict:
     suffix = Path(video.filename or "clip.webm").suffix or ".webm"
     temporary_path = None
     try:
+        await ensure_wlasl_assets()
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temporary:
             temporary_path = temporary.name
+            uploaded_bytes = 0
             while chunk := await video.read(1024 * 1024):
+                uploaded_bytes += len(chunk)
+                if uploaded_bytes > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Video exceeds the {MAX_UPLOAD_BYTES}-byte upload limit.",
+                    )
                 temporary.write(chunk)
-        return predict_video(temporary_path)
+        return await asyncio.to_thread(predict_video, temporary_path)
     except FileNotFoundError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except (RuntimeError, ValueError) as error:

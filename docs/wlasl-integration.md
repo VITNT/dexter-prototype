@@ -13,9 +13,9 @@ The app now keeps three independent recognition contracts:
 | --- | --- | --- |
 | ASL spelling | 30 x 63 hand landmarks | project-root `asl-model*` files |
 | ASL words / WLASL | sampled square RGB clip | `models/asl/wlasl/` |
-| KSL words | KSL landmark graph/crops | existing `csl*` files |
+| CSL words | CSL landmark graph/crops | existing `csl*` files |
 
-No WLASL code imports or changes the KSL feature pipeline.
+No WLASL code imports or changes the CSL feature pipeline.
 
 ## Recommended first milestone
 

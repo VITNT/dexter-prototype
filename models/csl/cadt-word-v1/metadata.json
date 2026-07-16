@@ -1,0 +1,22 @@
+{
+  "adapter": "cadt_csl_hands_v1",
+  "frameCount": 30,
+  "frameWidth": 126,
+  "classCount": 75,
+  "confidenceThreshold": 0.7,
+  "confidenceMargin": 0.12,
+  "captureFrameCount": 36,
+  "windowFrameCount": 30,
+  "windowOffsetsFromEnd": [0, 3, 6],
+  "staticAgreement": {
+    "enabled": true,
+    "confidenceThreshold": 0.75,
+    "marginMultiplier": 0.5
+  },
+  "displayName": "CADT CSL 75-class LSTM",
+  "source": "Phal-Sovandy/Khmer-Sign-Language-Translation-System",
+  "sourceUrl": "https://github.com/Phal-Sovandy/Khmer-Sign-Language-Translation-System",
+  "sourceModel": "ksl_model_v1_legacy.h5",
+  "license": "ISC",
+  "limitations": "Released model has no idle class and no published signer-independent validation split."
+}
