@@ -88,7 +88,7 @@ body {
     border-radius: 4px;
 }
 
-/* Clear icon button inside output box header */
+/* Icon buttons inside output box header */
 .dex-icon-btn {
     background: transparent;
     border: none;
@@ -104,6 +104,12 @@ body {
 
 .dex-icon-btn:hover {
     background: #f1f3f4;
+}
+
+.output-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 /* Box Content */
@@ -329,7 +335,32 @@ canvas {
 
 .output-footer {
     justify-content: flex-end;
+    gap: 10px;
     /* Align right on output */
+}
+
+.dex-speech-btn {
+    flex: 0 0 40px;
+    color: #1a73e8;
+    border: 1px solid #dadce0;
+}
+
+.dex-speech-btn svg {
+    fill: currentColor;
+}
+
+.dex-speech-btn.is-speaking {
+    background: #e8f0fe;
+}
+
+.dex-speech-btn:disabled {
+    color: #9aa0a6;
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.dex-speech-btn:disabled:hover {
+    background: transparent;
 }
 
 /* Debug / confidence panel */
@@ -445,6 +476,31 @@ canvas {
     position: relative;
 }
 
+.dex-nav-dropdown-trigger {
+    gap: 6px;
+}
+
+.dex-nav-chevron {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.2s ease;
+}
+
+.dex-nav-dropdown.show .dex-nav-chevron {
+    transform: rotate(180deg);
+}
+
+@media (hover: hover) {
+    .dex-nav-dropdown:hover .dex-nav-chevron {
+        transform: rotate(180deg);
+    }
+}
+
 .dex-nav-dropdown-content {
     display: none;
     position: absolute;
@@ -523,9 +579,30 @@ canvas {
 }
 
 .dictionary-title {
+    margin: 0;
     font-size: 24px;
     font-weight: 500;
     color: #202124;
+}
+
+.dictionary-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.dictionary-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.dictionary-language-indicator {
+    color: #202124;
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: normal;
 }
 
 .dictionary-tabs {
@@ -832,6 +909,23 @@ body.dark-mode .dex-icon-btn svg {
     fill: #9aa0a6;
 }
 
+body.dark-mode .dex-speech-btn {
+    color: #8ab4f8;
+    border-color: #5f6368;
+}
+
+body.dark-mode .dex-speech-btn svg {
+    fill: currentColor;
+}
+
+body.dark-mode .dex-speech-btn.is-speaking {
+    background: #3c4043;
+}
+
+body.dark-mode .dex-speech-btn:disabled {
+    color: #5f6368;
+}
+
 body.dark-mode .dex-btn-primary,
 body.dark-mode .dex-btn-translate {
     background-color: #8ab4f8;
@@ -894,6 +988,10 @@ body.dark-mode .dex-nav-dropdown-item:hover {
 }
 
 body.dark-mode .dictionary-title {
+    color: #e8eaed;
+}
+
+body.dark-mode .dictionary-language-indicator {
     color: #e8eaed;
 }
 

@@ -28,10 +28,22 @@ async function loadVocabs() {
 
 window.switchLanguage = function(lang) {
     currentLang = lang;
-    document.getElementById('tab-asl').classList.toggle('active', lang === 'asl');
-    document.getElementById('tab-csl').classList.toggle('active', lang === 'csl');
-    document.getElementById('dictTitle').innerText = lang === 'asl' ? 'ASL Dictionary' : 'KSL Dictionary';
+    const isAsl = lang === 'asl';
 
+    // highlight the active language tab
+    const aslTab = document.getElementById('tab-asl');
+    const cslTab = document.getElementById('tab-csl');
+    aslTab.classList.toggle('active', isAsl);
+    cslTab.classList.toggle('active', !isAsl);
+    aslTab.setAttribute('aria-pressed', String(isAsl));
+    cslTab.setAttribute('aria-pressed', String(!isAsl));
+
+    // Keep SignDex as the product name and show the selected language separately.
+    const languageCode = isAsl ? 'ASL' : 'KSL';
+    document.getElementById('activeLanguageCode').innerText = languageCode;
+    document.title = `SignDex | ${languageCode}`;
+
+    // secretly update the url so sharing the link works, without reloading the page
     const newUrl = new URL(window.location);
     newUrl.searchParams.set('lang', lang);
     window.history.pushState({}, '', newUrl);

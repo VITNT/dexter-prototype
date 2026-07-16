@@ -45,11 +45,42 @@ assert.match(translatorScript, /STATIC_RELEASE_DURATION_MS\s*=\s*160/, "Differen
 assert.match(translatorScript, /MIN_CAPTURE_HAND_CONFIDENCE\s*=\s*0\.65/, "Landmark modes must require reliable hand tracking.");
 assert.match(translatorScript, /letterSessionCountdownComplete/, "ASL Letters must remember its one session countdown.");
 assert.match(translatorScript, /gestureEstimator\.estimate/, "ASL Letters must use the browser-only Fingerpose classifier.");
+assert.match(translatorScript, /classifyClosedThumbLetter/, "Closed-fist ASL letters must use palm-relative thumb slots.");
+assert.match(translatorScript, /hasCrossedIndexMiddle/, "R must be detected from crossed-finger geometry before orientation routing.");
 assert.doesNotMatch(translatorScript, /predict-letter/, "ASL Letters must not depend on the Python inference backend.");
 assert.doesNotMatch(translatorScript, /canonicalizeHandLandmarks|classifyClosedFistThumb/, "Static letters must not use landmark geometry rules.");
 assert.doesNotMatch(translatorHtml, /onnxruntime|ort\.min\.js/, "ASL Letters must not load a second inference runtime.");
-assert.match(translatorScript, /dynamicLetterPathScore/, "Ordinary whole-hand movement must not trigger Z.");
+assert.match(
+  translatorScript,
+  /getAslDynamicLetterIntent/,
+  "J/Z model routing must use letter-specific motion intent instead of cumulative jitter."
+);
 assert.match(translatorScript, /DYNAMIC_LETTER_REQUIRED_HITS\s*=\s*4/, "J/Z must use four confirmation hits.");
+assert.match(
+  translatorScript,
+  /hasEmergingAslLetterMotion\(recentFrames\)/,
+  "Emerging J/Z fingertip motion must suppress temporary static-letter guesses."
+);
+assert.match(
+  translatorScript,
+  /Motion: Detecting…/,
+  "Unresolved dynamic letters must use a label-neutral UI state."
+);
+assert.match(
+  translatorScript,
+  /Pose: Checking…/,
+  "Unconfirmed static guesses must not display a potentially incorrect letter."
+);
+assert.match(
+  translatorScript,
+  /lockDynamicLetterRecognition\(primaryWord,\s*releaseSignature\)/,
+  "Accepted J/Z letters must enter the dynamic-letter release gate."
+);
+assert.match(
+  translatorScript,
+  /handSignatureDistance\(acceptedDynamicSignature,\s*currentSignature\)\s*>=\s*STATIC_RELEASE_SHAPE_THRESHOLD/,
+  "J/Z release must accept a changed handshape without requiring the hand to leave the frame."
+);
 assert.match(
   translatorScript,
   /const visualOnly\s*=\s*currentTrackingMode\s*===\s*["']asl_word["']/,
@@ -65,5 +96,11 @@ assert.doesNotMatch(translatorScript, /if \(!captureIsActive \|\| !wlaslBackendR
 assert.match(translatorScript, /if \(visualOnly\) return;/, "ASL-word countdown completion must not clear recognition state.");
 assert.match(translatorScript, /if \(!captureIsActive\)/, "Frame processing must be gated until capture starts.");
 assert.match(translatorStyles, /\.video-container\.is-dimmed::after/, "Inactive camera states must be visibly dimmed.");
+assert.match(translatorHtml, /id=["']speakTranslationBtn["']/, "Translator must expose a final-translation speech control.");
+assert.match(translatorScript, /new SpeechSynthesisUtterance\(speakableTranslation\)/, "Speech must use the final interpreted text.");
+assert.match(translatorScript, /setFinalTranslation\(translation[^;]+speakable:/, "Only a successful interpretation may enable speech.");
+assert.match(translatorHtml, /onclick=["']backspaceWord\(\)["']/, "Translator must expose a backspace control.");
+assert.match(translatorScript, /window\.backspaceWord\s*=\s*function/, "Backspace control must have a callable handler.");
+assert.match(translatorScript, /sentenceBuilderDisplay\.lastChild\?\.remove\(\)/, "Backspace must remove the latest recognized item.");
 
 console.log("UI contracts passed: unique IDs, callable click handlers, and local scripts are present.");

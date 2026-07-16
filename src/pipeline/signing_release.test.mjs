@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import {
     handSignatureDistance,
     normalizeHandShapeSignature,
-    updatePauseProgress
+    updatePauseProgress,
+    updateReleaseProgress
 } from "./signing_release.mjs";
 
 const heldShape = [[
@@ -70,4 +71,42 @@ assert.equal(
     "Continued motion should drain the rearm timer instead of completing it."
 );
 
-console.log("Signing release tests passed: held signs stay locked and dynamic pauses are frame-rate independent.");
+let dynamicLetterReleaseMs = 0;
+for (let frame = 0; frame < 20; frame++) {
+    dynamicLetterReleaseMs = updateReleaseProgress({
+        elapsedMs: dynamicLetterReleaseMs,
+        deltaMs: 40,
+        isReleased: false,
+        durationMs: 160
+    });
+}
+assert.equal(
+    dynamicLetterReleaseMs,
+    0,
+    "Holding J's final I handshape must not rearm static-letter recognition."
+);
+for (let frame = 0; frame < 4; frame++) {
+    dynamicLetterReleaseMs = updateReleaseProgress({
+        elapsedMs: dynamicLetterReleaseMs,
+        deltaMs: 40,
+        isReleased: handSignatureDistance(heldNormalized, changedNormalized) >= 0.12,
+        durationMs: 160
+    });
+}
+assert.equal(
+    dynamicLetterReleaseMs,
+    160,
+    "Relaxing into a different handshape should rearm a dynamic letter without leaving the frame."
+);
+assert.equal(
+    updateReleaseProgress({
+        elapsedMs: 120,
+        deltaMs: 40,
+        isReleased: false,
+        durationMs: 160
+    }),
+    0,
+    "A hand returning before release completes must restart the release timer."
+);
+
+console.log("Signing release tests passed: held signs stay locked, dynamic pauses are frame-rate independent, and J/Z accept an in-frame release.");

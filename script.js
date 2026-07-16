@@ -16,7 +16,8 @@ import {
     copyHandSignature,
     handSignatureDistance,
     normalizeHandShapeSignature,
-    updatePauseProgress
+    updatePauseProgress,
+    updateReleaseProgress
 } from "./src/pipeline/signing_release.mjs";
 import {
     predictStaticKsl,
@@ -26,6 +27,14 @@ import {
     buildLegacyKslHandFrame,
     prepareLegacyKslSequence
 } from "./src/pipeline/ksl_legacy_word_pipeline.mjs";
+import {
+    getAslDynamicLetterIntent,
+    hasEmergingAslLetterMotion
+} from "./src/pipeline/asl_letter_motion.mjs";
+import {
+    classifyClosedThumbLetter,
+    hasCrossedIndexMiddle
+} from "./src/pipeline/asl_static_geometry.mjs";
 
 // skip drawing skeletons on phones — they can't handle it
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -47,6 +56,8 @@ let confidenceProgressBar = document.getElementById('confidenceBar');
 let confidencePctDisplay = document.getElementById('confidencePct');
 let guessLabelDisplay = document.getElementById('guessLabel');
 let sentenceBuilderDisplay = document.getElementById('builtSentence');
+let finalTranslationDisplay = document.getElementById('translatedResult');
+let speakTranslationButton = document.getElementById('speakTranslationBtn');
 let captureGuide = document.getElementById('captureGuide');
 let captureStateLabel = document.getElementById('captureStateLabel');
 let captureStateDetail = document.getElementById('captureStateDetail');
@@ -117,6 +128,7 @@ const MIN_CAPTURE_HAND_CONFIDENCE = 0.65;
 const STATIC_HOLD_DURATION_MS = 260;
 const STATIC_HOLD_MAX_TICK_MS = 100;
 const STATIC_HOLD_DECAY_RATE = 0.35;
+const STATIC_PREVIEW_REVEAL_PROGRESS = 0.35;
 // Give people a consistent half-second to react after recognition before the
 // camera is ready to accept another sign.
 const RECOGNITION_REACTION_DELAY_MS = 500;
@@ -124,8 +136,8 @@ const CAPTURE_COUNTDOWN_START = 3;
 const CAPTURE_COUNTDOWN_STEP_MS = 300;
 const STATIC_RELEASE_DURATION_MS = 160;
 const STATIC_RELEASE_SHAPE_THRESHOLD = 0.12;
-const DYNAMIC_LETTER_PATH_THRESHOLD = 0.22;
-const DYNAMIC_LETTER_REQUIRED_HITS = 6;
+const DYNAMIC_LETTER_REQUIRED_HITS = 4;
+const DYNAMIC_LETTER_RELEASE_DURATION_MS = 160;
 const DYNAMIC_REARM_PAUSE_MS = RECOGNITION_REACTION_DELAY_MS;
 const DYNAMIC_REARM_MAX_TICK_MS = 100;
 const DYNAMIC_REARM_STILL_VELOCITY = 0.12;
@@ -147,6 +159,11 @@ let acceptedStaticSignature = [];
 let staticReleaseStartedAt = null;
 let wordAwaitingRelease = false;
 let acceptedWordLabel = "";
+let dynamicLetterAwaitingRelease = false;
+let acceptedDynamicLetter = "";
+let acceptedDynamicSignature = [];
+let dynamicLetterReleaseElapsedMs = 0;
+let dynamicLetterReleaseLastTickAt = null;
 let dynamicPauseElapsedMs = 0;
 let dynamicPauseLastTickAt = null;
 let dynamicPauseLastSignature = [];
@@ -869,16 +886,30 @@ window.clearWord = function () {
     accumulatedWord = "";
     sentenceBuilderDisplay.innerHTML = "";
 
-    const finalResultUI = document.getElementById('translatedResult');
-    if (finalResultUI) finalResultUI.innerText = "";
+    setFinalTranslation("");
+    rawExtractionDisplay.innerText = "...";
+}
+
+window.backspaceWord = function () {
+    if (!sentenceBuilderDisplay) return;
+
+    // Recognized words add a trailing space node. Remove that separator first,
+    // then remove the latest complete word dropdown or letter span.
+    while (sentenceBuilderDisplay.lastChild?.nodeType === Node.TEXT_NODE
+        && !sentenceBuilderDisplay.lastChild.textContent.trim()) {
+        sentenceBuilderDisplay.lastChild.remove();
+    }
+
+    sentenceBuilderDisplay.lastChild?.remove();
+    syncSentenceState();
+    setFinalTranslation("");
     rawExtractionDisplay.innerText = "...";
 }
 
 window.translateSentence = async function () {
     if (!accumulatedWord) return;
 
-    const finalResultUI = document.getElementById('translatedResult');
-    finalResultUI.innerText = "Dexter is thinking...";
+    setFinalTranslation("Dexter is thinking...");
 
     try {
         const response = await fetch('/api/translate', {
@@ -889,17 +920,74 @@ window.translateSentence = async function () {
 
         if (!response.ok) {
             console.error("Backend error:", await response.text());
-            finalResultUI.innerText = "Error: Translation service failed.";
+            setFinalTranslation("Error: Translation service failed.");
             return;
         }
 
         const data = await response.json();
-        finalResultUI.innerText = data.translation || "Error: Empty response.";
+        const translation = typeof data.translation === "string" ? data.translation.trim() : "";
+        setFinalTranslation(translation || "Error: Empty response.", { speakable: Boolean(translation) });
     } catch (err) {
         console.error("Network issue:", err);
-        finalResultUI.innerText = "Network Error. Please try again.";
+        setFinalTranslation("Network Error. Please try again.");
     }
 }
+
+const speechSynthesisSupported = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+let speakableTranslation = "";
+let activeTranslationUtterance = null;
+
+function updateSpeakTranslationButton(isSpeaking = false) {
+    if (!speakTranslationButton) return;
+
+    const canSpeak = speechSynthesisSupported && Boolean(speakableTranslation);
+    speakTranslationButton.disabled = !canSpeak;
+    speakTranslationButton.classList.toggle("is-speaking", isSpeaking);
+    speakTranslationButton.setAttribute("aria-label", isSpeaking ? "Stop speaking" : "Speak translation");
+    speakTranslationButton.title = speechSynthesisSupported
+        ? (isSpeaking ? "Stop speaking" : "Speak translation")
+        : "Text to speech is not supported by this browser";
+}
+
+function cancelTranslationSpeech() {
+    if (speechSynthesisSupported) window.speechSynthesis.cancel();
+    activeTranslationUtterance = null;
+    updateSpeakTranslationButton(false);
+}
+
+function setFinalTranslation(text, { speakable = false } = {}) {
+    cancelTranslationSpeech();
+    speakableTranslation = speakable ? text.trim() : "";
+    if (finalTranslationDisplay) finalTranslationDisplay.innerText = text;
+    updateSpeakTranslationButton(false);
+}
+
+window.speakTranslation = function () {
+    if (!speechSynthesisSupported || !speakableTranslation) return;
+
+    if (activeTranslationUtterance) {
+        cancelTranslationSpeech();
+        return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(speakableTranslation);
+    utterance.lang = "en-US";
+    utterance.onstart = () => {
+        if (activeTranslationUtterance === utterance) updateSpeakTranslationButton(true);
+    };
+    utterance.onend = () => {
+        if (activeTranslationUtterance !== utterance) return;
+        activeTranslationUtterance = null;
+        updateSpeakTranslationButton(false);
+    };
+    utterance.onerror = utterance.onend;
+
+    activeTranslationUtterance = utterance;
+    updateSpeakTranslationButton(true);
+    window.speechSynthesis.speak(utterance);
+}
+
+updateSpeakTranslationButton(false);
 
 
 
@@ -1045,7 +1133,10 @@ function clearHandCache({ preserveReleaseGate = false } = {}) {
     activeSubVocabulary = null;
     activeSubMetadata = null;
     resetStaticRecognitionState();
-    if (!preserveReleaseGate) resetWordRecognitionState();
+    if (!preserveReleaseGate) {
+        resetWordRecognitionState();
+        resetDynamicLetterRecognitionState();
+    }
     routingDebug = { handshape: "unknown", zone: "neutral", routeKey: null, matched: false, velocity: 0, dynThreshold: CONFIDENCE_THRESHOLD };
 }
 
@@ -1274,6 +1365,67 @@ function resetWordRecognitionState() {
     dynamicPauseLastTickAt = null;
     dynamicPauseLastSignature = [];
     latestHandSignature = [];
+}
+
+function resetDynamicLetterRecognitionState() {
+    dynamicLetterAwaitingRelease = false;
+    acceptedDynamicLetter = "";
+    acceptedDynamicSignature = [];
+    dynamicLetterReleaseElapsedMs = 0;
+    dynamicLetterReleaseLastTickAt = null;
+}
+
+function lockDynamicLetterRecognition(letter, signature = latestHandSignature) {
+    setCaptureActive(false);
+    dynamicLetterAwaitingRelease = true;
+    acceptedDynamicLetter = letter;
+    acceptedDynamicSignature = normalizeHandShapeSignature(signature);
+    dynamicLetterReleaseElapsedMs = 0;
+    dynamicLetterReleaseLastTickAt = performance.now();
+    setCaptureGuide(
+        "accepted",
+        `${letter} accepted`,
+        "Relax or change your handshape before signing the next letter.",
+        0
+    );
+}
+
+function updateDynamicLetterRelease(handData, timestamp) {
+    if (!dynamicLetterAwaitingRelease) return false;
+    const rawDelta = Number.isFinite(dynamicLetterReleaseLastTickAt)
+        ? timestamp - dynamicLetterReleaseLastTickAt
+        : 0;
+    const currentSignature = normalizeHandShapeSignature(buildHandSignature(handData));
+    const shapeChanged = acceptedDynamicSignature.length > 0
+        && currentSignature.length > 0
+        && handSignatureDistance(acceptedDynamicSignature, currentSignature)
+            >= STATIC_RELEASE_SHAPE_THRESHOLD;
+    const isReleased = currentSignature.length === 0 || shapeChanged;
+
+    dynamicLetterReleaseElapsedMs = updateReleaseProgress({
+        elapsedMs: dynamicLetterReleaseElapsedMs,
+        deltaMs: rawDelta,
+        isReleased,
+        durationMs: DYNAMIC_LETTER_RELEASE_DURATION_MS
+    });
+    dynamicLetterReleaseLastTickAt = timestamp;
+
+    const progress = dynamicLetterReleaseElapsedMs / DYNAMIC_LETTER_RELEASE_DURATION_MS;
+    setCaptureGuide(
+        "accepted",
+        isReleased ? "Release detected" : `${acceptedDynamicLetter} accepted`,
+        isReleased
+            ? "Keep the relaxed handshape until the bar is full."
+            : "Relax or change your handshape before signing the next letter.",
+        progress
+    );
+
+    if (progress < 1) return true;
+
+    resetDynamicLetterRecognitionState();
+    clearHandCache();
+    prepareForNextCapture();
+    return true;
 }
 
 function lockWordRecognition(label, signature = latestHandSignature) {
@@ -1568,6 +1720,8 @@ async function processVideoFrames() {
             updateWlaslCaptureProgress(currentTimeMs);
         } else if (staticAwaitingRelease) {
             updateStaticRelease(detectedHands, currentTimeMs);
+        } else if (dynamicLetterAwaitingRelease) {
+            updateDynamicLetterRelease(detectedHands, currentTimeMs);
         } else if (wordAwaitingRelease) {
             updateWordRelease(detectedHands, currentTimeMs);
         } else if (!captureIsActive) {
@@ -1648,31 +1802,6 @@ function renderLandmarks(poseData, handData) {
             }
         }
     }
-}
-
-function relativeFingerPathLength(frames, landmarkIndex) {
-    if (!frames?.length) return 0;
-    const offset = landmarkIndex * 3;
-    let previousX = frames[0][offset] - frames[0][0];
-    let previousY = frames[0][offset + 1] - frames[0][1];
-    let path = 0;
-    for (let index = 1; index < frames.length; index++) {
-        const x = frames[index][offset] - frames[index][0];
-        const y = frames[index][offset + 1] - frames[index][1];
-        path += Math.hypot(x - previousX, y - previousY);
-        previousX = x;
-        previousY = y;
-    }
-    return path;
-}
-
-function dynamicLetterPathScore(frames) {
-    // Z is drawn with the index tip and J with the pinky tip. Subtracting the
-    // wrist prevents ordinary whole-hand movement between letters from firing Z.
-    return Math.max(
-        relativeFingerPathLength(frames, 8),
-        relativeFingerPathLength(frames, 20)
-    );
 }
 
 // figure out what kind of sign is happening and route to the right detector
@@ -1760,18 +1889,14 @@ function analyzeMovement(handData, poseData, timestamp = performance.now()) {
                 recentEnd[0] - recentStart[0],
                 recentEnd[1] - recentStart[1]
             );
-
+            const recentFrames = motionBuffer.slice(-8);
+            const emergingLetterMotion = hasEmergingAslLetterMotion(recentFrames);
+            const dynamicLetterIntent = getAslDynamicLetterIntent(motionBuffer);
             const intentionalLetterMotion = hasMotionWindow
-                ? dynamicLetterPathScore(motionBuffer) > DYNAMIC_LETTER_PATH_THRESHOLD
-                : false;
-            if (recentMovement > 0.035 || intentionalLetterMotion) {
+                && (dynamicLetterIntent.J || dynamicLetterIntent.Z);
+            if (recentMovement > 0.035 || emergingLetterMotion || intentionalLetterMotion) {
                 resetStaticHoldTimer();
-                setCaptureGuide(
-                    "capturing",
-                    "Following the movement",
-                    "Complete the motion, then relax your hand.",
-                    0
-                );
+                showDynamicLetterPending();
                 if (intentionalLetterMotion) inferDynamicGesture();
             } else if (hand) {
                 inferStaticGesture(hand, timestamp);
@@ -1976,11 +2101,15 @@ function inferDynamicGesture() {
     const cleanedSign = predictedSign.trim().toLowerCase();
 
     let isUserIdle = ["idle", "none", "", "still"].includes(cleanedSign);
+    let aslLetterMotionIntent = null;
+    let predictedMotionIsSupported = true;
 
     if (currentTrackingMode === "asl_letter") {
-        if (dynamicLetterPathScore(motionBuffer) <= DYNAMIC_LETTER_PATH_THRESHOLD) {
-            isUserIdle = true;
-        }
+        aslLetterMotionIntent = getAslDynamicLetterIntent(motionBuffer);
+        predictedMotionIsSupported = cleanedSign === "j"
+            ? aslLetterMotionIntent.J
+            : (cleanedSign === "z" ? aslLetterMotionIntent.Z : false);
+        if (!aslLetterMotionIntent.J && !aslLetterMotionIntent.Z) isUserIdle = true;
     } else if (metadataToUse?.adapter !== 'ksl_legacy_hands_v1') {
         let totalMovement = 0;
         let jointCount = 0;
@@ -2007,7 +2136,10 @@ function inferDynamicGesture() {
         }
     }
 
-    predictionVotes.push({ word: predictedSign, conf: confidenceLevel });
+    const voteWord = currentTrackingMode === "asl_letter" && !predictedMotionIsSupported
+        ? "idle"
+        : predictedSign;
+    predictionVotes.push({ word: voteWord, conf: confidenceLevel });
     if (predictionVotes.length > VOTE_WINDOW) predictionVotes.shift();
 
     const voteTally = {};
@@ -2029,7 +2161,13 @@ function inferDynamicGesture() {
     }
 
     const idleWords = ["idle", "none", "", "still", "មិនកម្រើក"];
-    const isVotedIdle = isUserIdle || idleWords.includes(votedSign.trim().toLowerCase());
+    const votedLetter = votedSign.trim().toUpperCase();
+    const votedMotionIsSupported = currentTrackingMode !== "asl_letter"
+        || (votedLetter === "J" && aslLetterMotionIntent?.J)
+        || (votedLetter === "Z" && aslLetterMotionIntent?.Z);
+    const isVotedIdle = isUserIdle
+        || !votedMotionIsSupported
+        || idleWords.includes(votedSign.trim().toLowerCase());
     const threshold = currentTrackingMode === "asl_word" && wlaslModel
         ? wlaslConfig.confidenceThreshold
         : (Number.isFinite(metadataToUse?.confidenceThreshold)
@@ -2055,6 +2193,8 @@ function inferDynamicGesture() {
         if (dynamicSignStreak >= requiredHits) {
             const topChoices = mappedResults
                 .filter(res => !idleWords.includes(res.word.trim().toLowerCase()))
+                .filter(res => currentTrackingMode !== "asl_letter"
+                    || Boolean(aslLetterMotionIntent?.[res.word.trim().toUpperCase()]))
                 .slice(0, 3);
 
             if (topChoices.length > 0) {
@@ -2064,10 +2204,11 @@ function inferDynamicGesture() {
             dynamicSignStreak = 0;
             motionBuffer = [];
             clearHandCache({ preserveReleaseGate: true });
-            showDynamicIdle(0, true);
+            if (!dynamicLetterAwaitingRelease) showDynamicIdle(0, true);
         }
     } else {
         showDynamicIdle(confidenceLevel, isVotedIdle);
+        if (currentTrackingMode === "asl_letter") showDynamicLetterPending();
     }
 
     preparedInputs.tensors.forEach(tensor => tensor.dispose());
@@ -2138,13 +2279,7 @@ function inferStaticGesture(hand, timestamp = performance.now()) {
         if (!consensus.stable) {
             staticHoldElapsedMs = 0;
             staticHoldLastTickAt = timestamp;
-            showStaticMatch(adjustedLetter, consensus.score || fpGuess.score, 0);
-            setCaptureGuide(
-                "holding",
-                `Checking ${adjustedLetter}`,
-                "Keep the handshape steady while three frames agree.",
-                0
-            );
+            showStaticCandidatePending(consensus.score || fpGuess.score, 0);
             return;
         }
 
@@ -2162,7 +2297,11 @@ function inferStaticGesture(hand, timestamp = performance.now()) {
         }
 
         const holdProgress = staticHoldElapsedMs / STATIC_HOLD_DURATION_MS;
-        showStaticMatch(adjustedLetter, consensus.score || fpGuess.score, holdProgress);
+        if (holdProgress < STATIC_PREVIEW_REVEAL_PROGRESS) {
+            showStaticCandidatePending(consensus.score || fpGuess.score, holdProgress);
+        } else {
+            showStaticMatch(adjustedLetter, consensus.score || fpGuess.score, holdProgress);
+        }
 
         if (holdProgress >= 1) {
             acceptStaticLetter(adjustedLetter);
@@ -2187,26 +2326,22 @@ function refineGeometricEdges(currentGuess, hand) {
     if (['U', 'V', 'R', 'P', 'H', 'K'].includes(corrected)) {
         const dx = Math.abs(hand[8].x - hand[5].x);
         const dy = Math.abs(hand[8].y - hand[5].y);
-        if (dx > dy * 1.2) {
+        if (hasCrossedIndexMiddle(hand)) {
+            corrected = 'R';
+        } else if (dx > dy * 1.2) {
             corrected = 'H';
         } else if (hand[8].y > hand[5].y) {
             corrected = 'P';
         } else {
-            const knuckleCross = hand[5].x - hand[9].x;
-            const tipCross = hand[8].x - hand[12].x;
-            if (knuckleCross * tipCross < 0) {
-                corrected = 'R';
+            const fingerGap = calculateDistance(hand[8], hand[12]);
+            const baseGap = calculateDistance(hand[5], hand[9]);
+            if (fingerGap < baseGap * 1.4) {
+                corrected = 'U';
             } else {
-                const fingerGap = calculateDistance(hand[8], hand[12]);
-                const baseGap = calculateDistance(hand[5], hand[9]);
-                if (fingerGap < baseGap * 1.4) {
-                    corrected = 'U';
-                } else {
-                    const leftHanded = hand[5].x > hand[17].x;
-                    let tX = hand[4].x, iX = hand[5].x, mX = hand[9].x;
-                    if (leftHanded) { tX = -tX; iX = -iX; mX = -mX; }
-                    corrected = hand[4].y < hand[9].y - 0.01 && tX > iX && tX < mX ? 'K' : 'V';
-                }
+                const leftHanded = hand[5].x > hand[17].x;
+                let tX = hand[4].x, iX = hand[5].x, mX = hand[9].x;
+                if (leftHanded) { tX = -tX; iX = -iX; mX = -mX; }
+                corrected = hand[4].y < hand[9].y - 0.01 && tX > iX && tX < mX ? 'K' : 'V';
             }
         }
     }
@@ -2237,23 +2372,7 @@ function refineGeometricEdges(currentGuess, hand) {
     }
 
     if (['A', 'E', 'S', 'T', 'M', 'N'].includes(corrected)) {
-        const leftHanded = hand[5].x > hand[17].x;
-        let tX = hand[4].x;
-        const tY = hand[4].y;
-        const tZ = hand[4].z;
-        let iX = hand[5].x, mX = hand[9].x, rX = hand[13].x;
-        if (leftHanded) { tX = -tX; iX = -iX; mX = -mX; rX = -rX; }
-        const imBoundary = (iX + mX) / 2;
-        const mrBoundary = (mX + rX) / 2;
-        const thumbSideOffset = leftHanded ? (hand[4].x - hand[5].x) : (hand[5].x - hand[4].x);
-        const knuckleZ = (hand[5].z + hand[9].z + hand[13].z) / 3;
-        const maxFingerY = Math.max(hand[8].y, hand[12].y, hand[16].y, hand[20].y);
-        if (tY > maxFingerY - 0.01) corrected = 'E';
-        else if (thumbSideOffset > 0.02) corrected = 'A';
-        else if (tZ < knuckleZ - 0.015 && tY < hand[10].y + 0.05 && tX > iX) corrected = 'S';
-        else if (tX < imBoundary) corrected = 'T';
-        else if (tX < mrBoundary) corrected = 'N';
-        else corrected = 'M';
+        corrected = classifyClosedThumbLetter(hand);
     }
 
     return corrected;
@@ -2265,6 +2384,19 @@ function showDynamicMatch(word, confidence) {
     confidenceProgressBar.style.background = "lime";
     confidencePctDisplay.innerText = percent + "%";
     guessLabelDisplay.innerText = "Motion: " + word;
+}
+
+function showDynamicLetterPending() {
+    confidenceProgressBar.style.width = "0%";
+    confidenceProgressBar.style.background = "gray";
+    confidencePctDisplay.innerText = "—";
+    guessLabelDisplay.innerText = "Motion: Detecting…";
+    setCaptureGuide(
+        "capturing",
+        "Following the movement",
+        "Complete the motion, then relax your hand.",
+        0
+    );
 }
 
 function showDynamicIdle(confidence, isUserIdle) {
@@ -2290,6 +2422,20 @@ function showStaticMatch(letter, score, holdProgress) {
         "holding",
         `Hold ${letter} steady`,
         "Keep the handshape still until the bar is full.",
+        holdProgress
+    );
+}
+
+function showStaticCandidatePending(score, holdProgress) {
+    const percent = Math.round((score / 10) * 100);
+    confidenceProgressBar.style.width = percent + "%";
+    confidenceProgressBar.style.background = "cyan";
+    confidencePctDisplay.innerText = percent + "%";
+    guessLabelDisplay.innerText = "Pose: Checking…";
+    setCaptureGuide(
+        "holding",
+        "Checking handshape",
+        "Hold still briefly while Dexter confirms the letter.",
         holdProgress
     );
 }
@@ -2406,11 +2552,20 @@ function acceptDynamicWord(
     sentenceBuilderDisplay.appendChild(document.createTextNode(" "));
 
     syncSentenceState();
-    if (lockRecognition) lockWordRecognition(primaryWord, releaseSignature);
+    if (lockRecognition) {
+        if (currentTrackingMode === "asl_letter") {
+            lockDynamicLetterRecognition(primaryWord, releaseSignature);
+        }
+        else lockWordRecognition(primaryWord, releaseSignature);
+    }
 }
 
 function resetInactivity() {
     const timestamp = performance.now();
+    if (dynamicLetterAwaitingRelease) {
+        updateDynamicLetterRelease({ landmarks: [] }, timestamp);
+        if (dynamicLetterAwaitingRelease) return;
+    }
     if (wordAwaitingRelease) {
         updateWordRelease({ landmarks: [] }, timestamp);
         if (wordAwaitingRelease) return;
