@@ -1,16 +1,27 @@
 # Third-party notices
 
-## PhonSSM
+## AI4Bharat OpenHands ST-GCN
 
-The architecture source under `asl_service/phonssm/` is derived from:
+The ST-GCN architecture in `asl_service/openhands_stgcn.py` and its WLASL
+preprocessing contract are adapted from:
 
-<https://github.com/anonymoussubmitter-167/phon-ssm>
+<https://github.com/AI4Bharat/OpenHands>
 
-Integrated from commit `5169623e57939d08f71eb08aad94f448c89c737d`.
+Audited against commit `b9ccf9eaf2a71301fc4601a64a6af06fdef04c9b`.
+The included `openhands_wlasl2000_stgcn.ckpt` is the pretrained WLASL ST-GCN
+artifact distributed in the project's checkpoint release bundle.
 
-The upstream README states that the project is released under the MIT License.
-The upstream repository did not include a separate license file when this code
-was integrated. No PhonSSM checkpoint is redistributed by this repository.
+Copyright 2021 - The AI4Bhārat team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0. The complete upstream license
+is included at `asl_service/OPENHANDS_LICENSE.txt`.
+
+WLASL dataset metadata used to construct the 2,000-label order comes from:
+
+<https://github.com/dxli94/WLASL>
+
+WLASL dataset access and usage terms remain applicable independently of the
+OpenHands software license.
 
 ## Khmer Sign Language Translation System
 

@@ -1,8 +1,7 @@
 # Dexter Sign Language Recognition
 
 For a fresh clone, follow [SETUP.md](SETUP.md). VS Code **Go Live** alone is
-not enough for ASL Words because WLASL300 runs in a local Python service and its
-checkpoint is excluded from Git.
+not enough for ASL Words because WLASL2000 runs in a local Python service.
 
 This branch contains the scalable sign-language-recognition redesign work.
 
@@ -31,14 +30,14 @@ Then open:
 - `http://localhost:8000/recorder.html` for the dataset recorder prototype
 - `http://localhost:8000/trainer.html` for the browser trainer prototype
 
-## PhonSSM WLASL300 service
+## OpenHands ST-GCN WLASL2000 service
 
-The isolated ASL-word backend lives in `asl_service/` and uses the pose+hands
-PhonSSM architecture from
-<https://github.com/anonymoussubmitter-167/phon-ssm>. The browser sends the
-MediaPipe pose and hand landmarks it already tracks, so no RGB I3D model or
-second server-side landmark detector is required. Checkpoint installation
-details are in `asl_service/models/README.md`.
+The isolated ASL-word backend lives in `asl_service/` and uses the released
+pose-based ST-GCN checkpoint from
+<https://github.com/AI4Bharat/OpenHands>. The browser sends the MediaPipe pose
+and hand landmarks it already tracks, so no RGB I3D model or second server-side
+landmark detector is required. The checkpoint is stored with Git LFS; its
+verified artifact details are in `asl_service/models/README.md`.
 
 After installing the checkpoint and Python requirements, run:
 
@@ -48,17 +47,12 @@ After installing the checkpoint and Python requirements, run:
 
 Check `http://127.0.0.1:8001/health`. It should report `"status":"ready"`.
 The live ASL-word client uses a rolling 2.5-second sign window. Each window is
-uniformly sampled to 30 frames of 33 pose, 21 left-hand, and 21 right-hand
-landmarks, then shoulder-centered and shoulder-width-scaled exactly like the
-reference WLASL training pipeline.
+reduced from 75 holistic landmarks to the OpenHands 27-point preset, converted
+to x/y coordinates, and normalized at clip level by shoulder midpoint and mean
+shoulder width. ST-GCN accepts the captured window's variable frame count.
 Because WLASL has no idle class, motion, confidence, and top-two-margin gates
 reject no-sign windows instead of forcing an arbitrary vocabulary word.
 Pausing or resuming the camera clears all cached recognition frames.
-
-The linked PhonSSM repository does not publish its WLASL300 `best_model.pt`—the
-benchmark weight is excluded by its `*.pt` ignore rule. The service is therefore
-ready for a matching checkpoint, but cannot report `"ready"` until that weight
-is obtained from the authors or reproduced with their benchmark training script.
 
 ## KSL v2 Pipeline
 

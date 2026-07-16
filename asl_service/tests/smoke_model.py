@@ -1,4 +1,4 @@
-"""Slow smoke test for an installed PhonSSM checkpoint; not an accuracy test."""
+"""Slow smoke test for the installed OpenHands checkpoint; not an accuracy test."""
 
 import numpy as np
 
@@ -13,7 +13,7 @@ for frame_index in range(len(frames)):
     frames[frame_index, 33:54, 1] = 0.55
 
 result = predict_landmarks(frames.tolist())
-assert result["model"] == "PhonSSM"
+assert result["model"] == "OpenHands ST-GCN"
 assert len(result["predictions"]) == 3
 assert result["word"]
 print(result)

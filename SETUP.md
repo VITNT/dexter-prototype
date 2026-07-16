@@ -21,8 +21,8 @@ VS Code Live Server can be used instead of `python -m http.server 8000`.
 
 ## Optional: ASL Words
 
-ASL Words uses the local PhonSSM WLASL300 service and requires its Python
-dependencies plus a matching checkpoint.
+ASL Words uses the local OpenHands ST-GCN WLASL2000 service and requires its
+Python dependencies plus Git LFS for the included checkpoint.
 
 ### 1. Install the service
 
@@ -34,16 +34,18 @@ python -m venv .venv
 The model consumes the pose and hand landmarks already extracted in the
 browser; the official WLASL I3D source is not required.
 
-### 2. Install the PhonSSM WLASL300 checkpoint
+### 2. Download the OpenHands checkpoint
 
-Follow `asl_service/models/README.md`. Copy the pose+hands WLASL300
-`best_model.pt` to:
+Install Git LFS before cloning or pulling the repository:
 
-`asl_service/models/phonssm_wlasl300.pt`
+```powershell
+git lfs install
+git lfs pull
+```
 
-The linked reference repository does not currently publish that benchmark
-weight. Its 5,565-class checkpoint and the old I3D `wlasl300.pt` are not
-compatible substitutes.
+The checkpoint should be present at
+`asl_service/models/openhands_wlasl2000_stgcn.ckpt` and approximately 41 MiB.
+See `asl_service/models/README.md` for its exact size and SHA-256 checksum.
 
 ### 3. Start the ASL service
 
@@ -60,8 +62,8 @@ Confirm <http://127.0.0.1:8001/health> reports `"status":"ready"`, then select
 
 - `No module named uvicorn`: use `.\.venv\Scripts\python.exe`, not system Python.
 - `missing_model`: confirm
-  `asl_service/models/phonssm_wlasl300.pt` exists and is the 300-class
-  pose+hands checkpoint.
+  `asl_service/models/openhands_wlasl2000_stgcn.ckpt` is a full Git LFS file,
+  not a small pointer.
 - Camera unavailable: allow camera permission and open the site through
   `localhost`, not directly as a local file.
 - Stale files after pulling: hard-refresh with `Ctrl+Shift+R`.

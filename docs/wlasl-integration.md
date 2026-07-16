@@ -1,49 +1,44 @@
-# PhonSSM WLASL300 integration
+# OpenHands ST-GCN WLASL2000 integration
 
 ## Runtime contract
 
-ASL Words now uses a local PyTorch PhonSSM service rather than the pretrained
-RGB I3D model.
+ASL Words uses the released pose-based AI4Bharat/OpenHands ST-GCN checkpoint.
 
 | Stage | Contract |
 | --- | --- |
 | Browser tracking | MediaPipe Pose (33) + left hand (21) + right hand (21) |
-| Capture window | Continuous 2.5 seconds, gated by sustained hand visibility |
-| Temporal preprocessing | Uniform sample or edge-pad to 30 frames |
-| Spatial preprocessing | Shoulder midpoint origin, shoulder-width scale |
-| Model input | `[batch, 30, 225]` float32 |
-| Model output | 300 logits in WLASL v0.3 top-300 order |
+| Capture window | Continuous 2.5 seconds |
+| Landmark selection | OpenHands `mediapipe_holistic_minimal_27` preset |
+| Spatial preprocessing | Clip-level shoulder midpoint and mean shoulder-width normalization |
+| Model input | `[batch, 2, variable frames, 27]` float32 |
+| Model output | 2,000 logits in alphabetically sorted WLASL gloss order |
 | API | multipart `landmarks` JSON field on `POST /predict` |
 
-The browser uses stable semantic left/right slots and never copies one detected
-hand into both slots. The backend preprocessing mirrors the reference
-`training/preprocess_wlasl_full.py` implementation.
+The 27 selected points are MediaPipe holistic indices
+`[0,2,5,11,12,13,14,33,37,38,41,42,45,46,49,50,53,54,58,59,62,63,66,67,70,71,74]`.
+Only x/y coordinates enter the model, matching the released checkpoint.
 
 ## Checkpoint contract
 
-The service loads `asl_service/models/phonssm_wlasl300.pt` strictly as the
-reference pose+hands configuration:
+The service strictly loads
+`asl_service/models/openhands_wlasl2000_stgcn.ckpt` into the OpenHands topology:
 
-- `input_mode="pose_hands"`
-- `num_landmarks=75`
-- `num_frames=30`
-- `num_signs=300`
-- `temperature=0.5`
+- ten ST-GCN blocks with learned edge importance
+- 27 graph nodes and three spatial adjacency partitions
+- 2 input channels
+- 256-dimensional pooled encoder output
+- fully connected 2,000-class decoder with dropout `0.05`
 
-The repository includes the authoritative 300-label order but not a model
-weight. The linked PhonSSM repository reports 74.41% WLASL300 top-1 accuracy,
-but its benchmark `best_model.pt` is ignored and absent from Git. Do not use its
-tracked 5,565-class dominant-hand checkpoint; its input and output contracts are
-different.
+The supplied archive checksum is
+`7a86185715e1a63a16dd87fbf6433e86bf1be4627193c181b148398a8603bc7a`.
+The loader uses an allowlisted PyTorch `weights_only=True` path for the two
+Lightning callback records, avoiding unrestricted checkpoint unpickling.
 
 ## Acceptance checks
 
-- Confirm `/health` reports `model: "PhonSSM"`, 300 classes, and input shape
-  `[30, 225]`.
-- Load the checkpoint with strict key/shape validation.
-- Compare logits against the reference repository on the same preprocessed
-  landmark sequence before trusting production results.
-- Re-evaluate the motion, top-1 confidence, and top-two margin gates on held-out
-  webcam recordings; WLASL has no idle class.
-- Test signers absent from training and keep the WLASL usage agreement in scope
-  if the benchmark data is used to reproduce the checkpoint.
+- Confirm `/health` reports `model: "OpenHands ST-GCN"`, 2,000 classes, and
+  model input shape `[2, "frames", 27]`.
+- Confirm the checkpoint passes strict key and tensor-shape validation.
+- Re-evaluate motion, confidence, and top-two-margin gates on held-out webcam
+  recordings because WLASL has no idle/no-sign class.
+- Keep the WLASL usage terms in scope when distributing or deploying the model.

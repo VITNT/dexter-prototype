@@ -7,18 +7,14 @@ import torch
 from .config import (
     CHECKPOINT_PATH,
     CLASS_LIST_PATH,
-    FRAME_COUNT,
-    INPUT_MODE,
-    LANDMARK_COUNT,
     MIN_MOTION_SCORE,
     MIN_TOP1_CONFIDENCE,
     MIN_TOP1_MARGIN,
     MODEL_NAME,
     NUM_CLASSES,
-    TEMPERATURE,
 )
-from .phonssm import PhonSSM, PhonSSMConfig
-from .phonssm_preprocessing import prepare_landmarks
+from .openhands_stgcn import OpenHandsSTGCN
+from .stgcn_preprocessing import prepare_landmarks
 
 
 def load_labels() -> list[str]:
@@ -30,49 +26,55 @@ def load_labels() -> list[str]:
         class_index = int(class_id)
         labels[class_index] = gloss
     if sorted(labels) != list(range(NUM_CLASSES)):
-        raise RuntimeError("The PhonSSM WLASL300 label file must contain IDs 0-299.")
+        raise RuntimeError("The OpenHands WLASL2000 label file must contain IDs 0-1999.")
     return [labels[index] for index in range(NUM_CLASSES)]
 
 
 def _model_state(checkpoint: object) -> dict[str, torch.Tensor]:
     if not isinstance(checkpoint, dict):
-        raise RuntimeError("The PhonSSM checkpoint must contain a state dictionary.")
-    if "model_state_dict" in checkpoint:
-        checkpoint = checkpoint["model_state_dict"]
-    elif "state_dict" in checkpoint:
+        raise RuntimeError("The OpenHands checkpoint must contain a state dictionary.")
+    if "state_dict" in checkpoint:
         checkpoint = checkpoint["state_dict"]
+    elif "model_state_dict" in checkpoint:
+        checkpoint = checkpoint["model_state_dict"]
     if not isinstance(checkpoint, dict) or not checkpoint:
-        raise RuntimeError("The PhonSSM checkpoint contains no model weights.")
+        raise RuntimeError("The OpenHands checkpoint contains no model weights.")
     return {
-        key.removeprefix("module."): value
+        key.removeprefix("module.").removeprefix("model."): value
         for key, value in checkpoint.items()
         if isinstance(key, str)
     }
 
 
+def _safe_load_checkpoint(path, device):
+    """Load the Lightning archive without enabling arbitrary pickle globals."""
+    model_checkpoint = type("ModelCheckpoint", (), {})
+    model_checkpoint.__module__ = "pytorch_lightning.callbacks.model_checkpoint"
+    early_stopping = type("EarlyStopping", (), {})
+    early_stopping.__module__ = "pytorch_lightning.callbacks.early_stopping"
+    try:
+        with torch.serialization.safe_globals([model_checkpoint, early_stopping]):
+            return torch.load(path, map_location=device, weights_only=True)
+    except Exception as error:
+        raise RuntimeError(f"Unable to safely load OpenHands checkpoint: {error}") from error
+
+
 @lru_cache(maxsize=1)
-def load_model() -> tuple[PhonSSM, torch.device]:
+def load_model() -> tuple[OpenHandsSTGCN, torch.device]:
     if not CHECKPOINT_PATH.exists():
         raise FileNotFoundError(
-            f"PhonSSM WLASL300 checkpoint not found at {CHECKPOINT_PATH}. "
+            f"OpenHands WLASL2000 ST-GCN checkpoint not found at {CHECKPOINT_PATH}. "
             "Follow asl_service/models/README.md."
         )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    config = PhonSSMConfig(
-        input_mode=INPUT_MODE,
-        num_landmarks=LANDMARK_COUNT,
-        num_frames=FRAME_COUNT,
-        num_signs=NUM_CLASSES,
-        temperature=TEMPERATURE,
-    )
-    model = PhonSSM(config)
-    checkpoint = torch.load(CHECKPOINT_PATH, map_location=device, weights_only=True)
+    model = OpenHandsSTGCN(num_classes=NUM_CLASSES)
+    checkpoint = _safe_load_checkpoint(CHECKPOINT_PATH, device)
     try:
         model.load_state_dict(_model_state(checkpoint), strict=True)
     except RuntimeError as error:
         raise RuntimeError(
-            "The installed checkpoint is not the 300-class pose+hands PhonSSM model."
+            "The installed checkpoint is not the 2,000-class OpenHands WLASL ST-GCN model."
         ) from error
     model.to(device).eval()
     return model, device
@@ -84,8 +86,8 @@ def predict_landmarks(frames: list, top_k: int = 3) -> dict:
     landmarks, motion_score = prepare_landmarks(frames)
 
     with torch.inference_mode():
-        outputs = model(landmarks.to(device))
-        probabilities = torch.softmax(outputs["logits"][0], dim=0)
+        logits = model(landmarks.to(device))
+        probabilities = torch.softmax(logits[0], dim=0)
         scores, indices = probabilities.topk(min(max(2, top_k), NUM_CLASSES))
 
     predictions = [

@@ -30,11 +30,11 @@ class WlaslContractTests(unittest.TestCase):
         self.assertGreaterEqual(indices[-1], 70)
         self.assertTrue(np.all(np.diff(indices) == 1))
 
-    def test_wlasl300_label_contract(self):
+    def test_wlasl2000_label_contract(self):
         labels = load_labels()
-        self.assertEqual(len(labels), 300)
-        self.assertEqual(labels[0], "book")
-        self.assertEqual(labels[-1], "money")
+        self.assertEqual(len(labels), 2000)
+        self.assertEqual(labels[0], "a")
+        self.assertEqual(labels[-1], "zero")
 
 
 if __name__ == "__main__":

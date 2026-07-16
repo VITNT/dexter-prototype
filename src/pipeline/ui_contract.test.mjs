@@ -94,23 +94,23 @@ assert.match(
 assert.match(translatorScript, /lockRecognition:\s*false/, "WLASL results must not use the timer-test hand release gate.");
 assert.match(
   translatorScript,
-  /status\?\.model\s*===\s*["']PhonSSM["']/,
-  "ASL Words must only accept the PhonSSM backend contract."
+  /status\?\.model\s*===\s*["']OpenHands ST-GCN["']/,
+  "ASL Words must only accept the OpenHands ST-GCN backend contract."
 );
 assert.match(
   translatorScript,
   /wlaslLandmarkFrames\.push\(buildHolisticFrame\(detectedPose, detectedHands, assignedHands\)\)/,
-  "PhonSSM must receive pose plus stable left/right hand landmarks."
+  "OpenHands ST-GCN must receive pose plus stable left/right hand landmarks."
 );
 assert.match(
   translatorScript,
   /form\.append\(["']landmarks["'],\s*JSON\.stringify\(landmarkFrames\)\)/,
-  "ASL Words must submit landmark windows rather than RGB video to PhonSSM."
+  "ASL Words must submit landmark windows rather than RGB video to OpenHands ST-GCN."
 );
 assert.doesNotMatch(
   translatorScript,
   /form\.append\(["']video["']/,
-  "The PhonSSM request must not upload the obsolete I3D video clip."
+  "The OpenHands request must not upload the obsolete I3D video clip."
 );
 assert.doesNotMatch(translatorScript, /if \(!captureIsActive \|\| !wlaslBackendReady/, "Countdown state must not gate ASL-word recording.");
 assert.match(translatorScript, /if \(visualOnly\) return;/, "ASL-word countdown completion must not clear recognition state.");
