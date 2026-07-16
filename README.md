@@ -1,35 +1,38 @@
 # Dexter Sign Language Recognition
 
-For a fresh clone, follow [SETUP.md](SETUP.md). VS Code **Go Live** alone is
-not enough for ASL Words because WLASL300 runs in a local Python service and its
-checkpoint is excluded from Git.
+For a one-link GitHub-to-Vercel deployment, follow
+[DEPLOY_VERCEL.md](DEPLOY_VERCEL.md). For a fresh local clone, follow
+[SETUP.md](SETUP.md). VS Code **Go Live** alone is
+not enough for local ASL Words because WLASL300 needs Python and its checkpoint
+is excluded from Git. In production, the same service runs as a Vercel Python
+Function and reads the checkpoint from private Vercel Blob storage.
 
-This branch contains the scalable sign-language-recognition redesign work.
-
-The app remains browser-based, but KSL word recognition now has a versioned,
-face-free graph and temporal pipeline:
-
-- an architecture diagnosis and migration plan in `docs/sign-language-redesign.md`
-- a catalog-first data schema in `data/catalog/sign-catalog.example.json`
-- deterministic, tested KSL feature extraction in `src/pipeline/ksl_feature_pipeline.mjs`
-- two-hand crop capture plus signer/session-aware dataset recording
-- graph-edge spatial features, a causal TCN, focal loss, and optional crop fusion
-- signer/session-independent validation with macro-F1 and confusion reporting
+CSL Words runs the released CADT 75-class temporal model directly in the
+browser. ASL Words is a separate WLASL/I3D integration and does not share the
+CSL model or preprocessing.
 
 ## Run Locally
 
-Serve the project from the repository root so browser `fetch()` calls can load
-models, labels, and JSON files:
+For the complete local site, including the Vercel API routes, copy
+`.env.example` to `.env.local` and run:
 
 ```bash
-python3 -m http.server 8000
+npx vercel@latest dev --listen 8000
 ```
 
-Then open:
+Then open `http://localhost:8000/index.html`. A plain
+`python3 -m http.server 8000` also runs browser recognition, but not the
+server-side **Interpret Context** route. The complete Windows, macOS/Linux,
+Docker, and Vercel instructions are in [SETUP.md](SETUP.md). On Windows systems
+that block PowerShell's `npx.ps1`, use `npx.cmd` as shown there.
 
-- `http://localhost:8000/index.html` for the current translator prototype
-- `http://localhost:8000/recorder.html` for the dataset recorder prototype
-- `http://localhost:8000/trainer.html` for the browser trainer prototype
+## Deploy
+
+The complete application is configured for one Vercel domain. The restricted
+WLASL checkpoint and two official support files remain outside Git and are
+loaded by the Python Function from a private Vercel Blob store. Set
+`GEMINI_API_KEY`, enable Large Functions, upload the three private assets, and
+share the resulting Vercel URL. See [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md).
 
 ## WLASL300 service
 
@@ -54,73 +57,73 @@ Because WLASL has no idle class, motion, confidence, and top-two-margin gates
 reject no-sign windows instead of forcing an arbitrary vocabulary word.
 Pausing or resuming the camera clears all cached recognition frames.
 
-## KSL v2 Pipeline
+## CADT CSL model
 
-New KSL recordings use `ksl-landmarks-v2`:
+CSL Words uses the released CADT checkpoint converted deterministically from
+Keras HDF5 to TensorFlow.js:
 
 ```text
-60 video frames
-  -> shoulders/elbows/wrists/hips + left/right hands (150 raw values)
-  -> shoulder normalization + velocity + acceleration + 62 graph relations
-  -> 700 model features per frame
-  -> spatial graph projection + causal TCN
-  -> optional left/right grayscale hand-crop fusion
-  -> KSL class prediction
+30 video frames
+  -> up to two MediaPipe hands in detection order
+  -> wrist-relative XYZ landmarks (126 values per frame)
+  -> two-layer LSTM
+  -> one of 75 CADT CSL classes
+  -> confidence, top-two-margin, temporal voting, and release gates
 ```
 
-The recorder requires signer and session IDs. The KSL trainer refuses a
-recording-only validation split because clips from the same session can make
-validation accuracy look perfect without generalizing.
+The public name, asset folders, documentation, tests, and safe internal adapter
+names use CSL. A few serialized upstream identifiers retain their original
+names so the converted checkpoint remains traceable to its source.
 
-The historical `csl_*` filenames and internal `csl_word` mode remain in place
-for compatibility with existing Cambodian/Khmer assets. The UI calls this KSL.
-
-After training, place the four downloaded files at the project root:
-
-- `csl_model.json`
-- `csl_model.weights.bin`
-- `csl_labels.json`
-- `csl_model_metadata.json`
-
-The live predictor automatically recognizes the new `[60,700]` model and its
-optional `[60,24,48,1]` hand-crop input. Existing 30-frame LSTM sub-models stay
-available only as a fallback when the unified graph model is absent.
-
-When no project-trained KSL v2 bundle is installed, the translator loads the
-released 75-class whole-word model from `models/ksl/legacy-word-v1/`. It uses
-30 frames of wrist-relative two-hand landmarks and appends the recognized Khmer
-word directly to the sentence box. A released 42-class static LandmarkNet is a
-final fallback for held hand forms. Its matching reference images appear in the
-KSL dictionary. Source and license details are recorded in
+The model bundle lives in `models/csl/cadt-word-v1/`. A released 42-class
+static LandmarkNet remains a final fallback if the temporal bundle cannot be
+loaded. Six approved reference images appear in the CSL dictionary; removed
+images render as unavailable rather than being requested. Source and license
+details are recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-The linked upstream repository does not publish the raw 22,000-image or
-1,900-video datasets described by its documentation. Its 12 dataset collage
-images, 41 form JPGs, and 18 single example videos are not sufficient to train
-or independently validate the KSL v2 temporal model. See
-[`docs/ksl-external-resources.md`](docs/ksl-external-resources.md) for the
-compatibility audit and the additional data needed for temporal retraining.
+CSL draws the lightweight hand skeleton but does not load or run the full body
+Pose tracker. The CADT classifier receives only its original two-hand landmark
+input.
 
-The crop branch is a compact browser-trainable appearance stream, not a
-pretrained WLASL video backbone. WLASL now has a separate RGB-video bundle at
-`models/asl/wlasl/`; see its README and manifest for the browser model contract.
+### CSL testing and tuning
+
+CSL Words uses one fixed runtime pipeline: 36 evenly timed frames, three
+overlapping 30-frame predictions, probability averaging, and conservative
+same-label confirmation from the static model. Test each sign repeatedly and
+record correct, wrong, and rejected outcomes.
+The adjustable CSL values are kept together in
+`models/csl/cadt-word-v1/metadata.json`: `confidenceThreshold`,
+`confidenceMargin`, capture/window sizes and offsets, and the static-agreement
+settings. Static agreement never inserts a different word; it can only support
+the exact label already predicted by the temporal model.
+See [`docs/csl-testing.md`](docs/csl-testing.md) and its CSV template for the
+procedure, including idle false-activation tests.
+
+The linked upstream repository does not publish the raw 22,000-image or
+1,900-video datasets described by its documentation, so this repository cannot
+honestly retrain or independently validate the CADT temporal model. See
+[`docs/csl-external-resources.md`](docs/csl-external-resources.md).
+
+WLASL has a separate RGB-video bundle at `models/asl/wlasl/`; see its README
+and manifest for the browser model contract.
 The end-to-end acquisition, conversion, and validation checklist is in
 `docs/wlasl-integration.md`.
 Optional legacy ASL word files can still be installed as
 `asl_word_model.json`, `asl_word_model.weights.bin`, `asl_word_labels.json`, and
 `asl_word_model_metadata.json`; without them, ASL Words reports that no word
-model is installed instead of accidentally using the KSL sub-model registry.
+model is installed instead of accidentally using the CSL model bundle.
 
 ## Verification
 
 Run the deterministic feature tests with:
 
 ```bash
-node src/pipeline/ksl_feature_pipeline.test.mjs
-node src/pipeline/ksl_legacy_word_pipeline.test.mjs
-node src/pipeline/ksl_legacy_model_asset.test.mjs
-node src/pipeline/ksl_static_classifier.test.mjs
-node src/pipeline/trainer_feature_compat.test.mjs
+node src/pipeline/csl_cadt_word_pipeline.test.mjs
+node src/pipeline/csl_cadt_model_asset.test.mjs
+node src/pipeline/csl_runtime_strategy.test.mjs
+node src/pipeline/csl_static_classifier.test.mjs
+node src/pipeline/prediction_rejection.test.mjs
 node src/pipeline/ui_contract.test.mjs
 node src/pipeline/wlasl_video_pipeline.test.mjs
 ```

@@ -1,25 +1,29 @@
 let currentLang = 'asl';
 const aslVocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(word => ({ word }));
-let kslVocab = ['កម្ពុជា', 'ត្រូវ', 'ឆ្ងាញ់', 'អរគុណ', 'ខុស'].map(word => ({
+let cslVocab = ['កម្ពុជា', 'ត្រូវ', 'ឆ្ងាញ់', 'អរគុណ', 'ខុស'].map(word => ({
     word,
     basePath: `images/csl/${word}`,
     extensions: ['gif']
 }));
+const availableCslReferenceForms = new Set(['form_aa', 'form_ab', 'form_ac', 'form_u', 'form_v', 'form_x']);
 
 async function loadVocabs() {
     try {
-        const response = await fetch('./models/ksl/static-landmark-v1.json');
+        const response = await fetch('./models/csl/static-landmark-v1.json');
         if (response.ok) {
             const model = await response.json();
-            kslVocab.push(...model.classes.map((form, index) => ({
-                word: model.displayLabels[index] || form,
-                form,
-                basePath: `images/ksl/reference/${form}`,
-                extensions: ['jpg']
-            })));
+            cslVocab.push(...model.classes.map((form, index) => {
+                const hasReferenceImage = availableCslReferenceForms.has(form);
+                return {
+                    word: model.displayLabels[index] || form,
+                    form,
+                    basePath: hasReferenceImage ? `images/csl/reference/${form}` : '',
+                    extensions: hasReferenceImage ? ['jpg'] : []
+                };
+            }));
         }
     } catch (error) {
-        console.warn('Static KSL reference library is unavailable.', error);
+        console.warn('Static CSL reference library is unavailable.', error);
     }
 
     const requestedLang = new URLSearchParams(window.location.search).get('lang');
@@ -39,7 +43,7 @@ window.switchLanguage = function(lang) {
     cslTab.setAttribute('aria-pressed', String(!isAsl));
 
     // Keep SignDex as the product name and show the selected language separately.
-    const languageCode = isAsl ? 'ASL' : 'KSL';
+    const languageCode = isAsl ? 'ASL' : 'CSL';
     document.getElementById('activeLanguageCode').innerText = languageCode;
     document.title = `SignDex | ${languageCode}`;
 
@@ -60,13 +64,13 @@ window.toggleFlashcardMode = function() {
 function renderDictionary() {
     const grid = document.getElementById('dictGrid');
     grid.innerHTML = '';
-    const vocab = currentLang === 'asl' ? aslVocab : kslVocab;
+    const vocab = currentLang === 'asl' ? aslVocab : cslVocab;
     document.querySelector('.dict-reference-chart')?.remove();
 
     if (currentLang === 'csl') {
         const chartCard = document.createElement('div');
         chartCard.className = 'dict-reference-chart';
-        chartCard.innerHTML = '<img src="images/csl/csl-reference-chart.png" alt="KSL reference chart">';
+        chartCard.innerHTML = '<img src="images/csl/csl-reference-chart.png" alt="CSL reference chart">';
         grid.parentElement.insertBefore(chartCard, grid);
     }
 
@@ -102,8 +106,9 @@ function renderDictionary() {
 
         const isDynamicAsl = currentLang === 'asl' && ['j', 'z'].includes(cleanWord);
         const extensions = entry.extensions || (isDynamicAsl ? ['gif', 'png', 'jpg'] : ['png', 'jpg', 'gif']);
-        const basePath = entry.basePath || `images/${currentLang}/${cleanWord}`;
-        loadBestImage(card, basePath, extensions);
+        const basePath = entry.basePath ?? `images/${currentLang}/${cleanWord}`;
+        if (basePath && extensions.length) loadBestImage(card, basePath, extensions);
+        else card.querySelector('.dict-img-placeholder').classList.remove('loading');
     }
 }
 

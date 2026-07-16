@@ -1,0 +1,15 @@
+.git/
+.github/
+.venv/
+node_modules/
+third_party/
+data/external/
+docs/
+tools/
+recordings/
+asl_service/tests/
+asl_service/models/*.pt
+src/pipeline/*.test.mjs
+*.log
+*.pyc
+__pycache__/

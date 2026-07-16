@@ -1,6 +1,6 @@
 # WLASL browser bundle
 
-This directory is intentionally separate from every KSL asset.
+This directory is intentionally separate from every CSL asset.
 
 The official WLASL pretrained checkpoints are PyTorch RGB-video models; they
 cannot be loaded by TensorFlow.js unchanged. Install a browser-converted model

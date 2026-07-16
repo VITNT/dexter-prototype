@@ -4,15 +4,24 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const glossInput = req.body.aslString;
+        const glossInput = typeof req.body?.aslString === 'string'
+            ? req.body.aslString.trim()
+            : '';
 
         if (!glossInput) {
             return res.status(400).json({ error: "Missing ASL string" });
         }
+        if (glossInput.length > 500) {
+            return res.status(413).json({ error: "ASL string is too long" });
+        }
 
         const API_KEY = process.env.GEMINI_API_KEY;
+        if (!API_KEY) {
+            return res.status(503).json({ error: "GEMINI_API_KEY is not configured" });
+        }
 
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${API_KEY}`;
+        const model = process.env.GEMINI_MODEL || 'gemma-4-31b-it';
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${API_KEY}`;
         const prompt = `You are an ASL gloss-to-English translator.
 
 ASL gloss is a written representation of American Sign Language where each word is an English label for a specific sign. The words are NOT foreign language words — they are literal English names for hand signs. Do NOT try to interpret or translate the individual words as if they are from another language. Just rearrange them into a natural English sentence.

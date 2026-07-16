@@ -36,36 +36,23 @@
         }
       ]
     },
-    "upper8_hands2x21_xyz": {
-      "frameWidth": 150,
-      "schemaVersion": "ksl-landmarks-v2",
+    "hands2x21_wrist_relative_xyz": {
+      "frameWidth": 126,
+      "description": "CADT detection-order hands with each hand translated to its own wrist origin.",
       "parts": [
         {
-          "name": "upper_body",
-          "sourcePoseIndices": [11, 12, 13, 14, 15, 16, 23, 24],
-          "landmarks": 8,
+          "name": "detected_hand_0",
+          "landmarks": 21,
           "valuesPerLandmark": 3,
           "offset": 0
         },
         {
-          "name": "left_hand",
+          "name": "detected_hand_1",
           "landmarks": 21,
           "valuesPerLandmark": 3,
-          "offset": 24
-        },
-        {
-          "name": "right_hand",
-          "landmarks": 21,
-          "valuesPerLandmark": 3,
-          "offset": 87
+          "offset": 63
         }
       ]
-    },
-    "ksl_graph_features_v2": {
-      "frameWidth": 700,
-      "schemaVersion": "ksl-landmarks-v2",
-      "derivedFrom": "upper8_hands2x21_xyz",
-      "description": "Position, velocity, acceleration, 62 spatial graph relations, and two hand-presence flags."
     }
   },
   "languages": [
@@ -111,19 +98,20 @@
     },
     {
       "id": "csl",
-      "name": "KSL (Khmer/Cambodian Sign Language)",
+      "name": "CSL (Khmer/Cambodian Sign Language)",
       "defaultTargetLanguage": "km",
       "models": [
         {
-          "id": "ksl-isolated-graph-tcn-v2",
+          "id": "cadt-csl-lstm-v1",
           "task": "isolated_sign_recognition",
-          "modelPath": "csl_model.json",
-          "labelsPath": "csl_labels.json",
-          "metadataPath": "csl_model_metadata.json",
-          "landmarkLayout": "upper8_hands2x21_xyz",
-          "modelFrameWidth": 700,
-          "frameCount": 60,
-          "fps": 30
+          "modelPath": "models/csl/cadt-word-v1/model.json",
+          "labelsPath": "models/csl/cadt-word-v1/labels.json",
+          "metadataPath": "models/csl/cadt-word-v1/metadata.json",
+          "adapter": "cadt_csl_hands_v1",
+          "landmarkLayout": "hands2x21_wrist_relative_xyz",
+          "frameWidth": 126,
+          "frameCount": 30,
+          "fps": 15
         }
       ],
       "signs": [
@@ -145,8 +133,8 @@
               "keypointsPath": "data/keypoints/csl/thank_you/signer001-001.json",
               "split": "validation",
               "fps": 15,
-              "frameCount": 60,
-              "landmarkLayout": "upper8_hands2x21_xyz",
+              "frameCount": 30,
+              "landmarkLayout": "hands2x21_wrist_relative_xyz",
               "notes": "Placeholder sample entry. Replace with real consented data."
             }
           ]

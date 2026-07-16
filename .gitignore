@@ -1,12 +1,39 @@
-# Local Netlify folder
-.netlify
-.env.local
-.vercel
-node_modules
-asl_service/models/*.pt
-asl_service/models/*.pth
-__pycache__/
+# Secrets and machine-specific environment files
+.env
+.env.*
+!.env.example
+
+# Node/Vercel local state
+node_modules/
+.vercel/
+.netlify/
+
+# Python environments, caches, and reports
 .venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage/
+
+# Logs and editor/OS metadata
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# External research assets installed separately under their own terms
 third_party/WLASL/
 data/external/
-.vscode
+asl_service/models/*
+!asl_service/models/README.md
+
+# Local recordings and temporary output
+recordings/
+tmp/
+temp/
+
+# Keep the browser runtime assets in Git. In particular, do not ignore:
+# asl-model.weights.bin, models/csl/**, images/**, api/**, src/pipeline/**.
