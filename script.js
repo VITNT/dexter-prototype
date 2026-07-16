@@ -35,6 +35,10 @@ import {
     classifyClosedThumbLetter,
     hasCrossedIndexMiddle
 } from "./src/pipeline/asl_static_geometry.mjs";
+import {
+    hasVisibleHandLandmarks,
+    shouldSubmitAslWordClip
+} from "./src/pipeline/word_hand_presence.mjs";
 
 // skip drawing skeletons on phones — they can't handle it
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -86,6 +90,7 @@ let wlaslCaptureStartedAt = null;
 let wlaslRequestInFlight = false;
 let wlaslPendingClip = null;
 let wlaslCaptureGeneration = 0;
+let wlaslTrackedHandFrames = 0;
 let aslModelMetadata = null;
 let aslWordModelMetadata = null;
 let cslModelMetadata = null;
@@ -789,23 +794,34 @@ function startWlaslCaptureLoop() {
     wlaslRecorder.onstop = () => {
         clearTimeout(wlaslCaptureTimer);
         if (generation !== wlaslCaptureGeneration) return;
+        const trackedHandFrames = wlaslTrackedHandFrames;
         const clip = new Blob(wlaslRecorderChunks, { type: wlaslRecorder.mimeType || 'video/webm' });
         wlaslRecorder = null;
         wlaslRecorderChunks = [];
-        // Keep recording while the previous window is classified. The timer is
-        // only a visual rhythm cue and never creates a gap in model input.
+        // Keep recording while the previous window is classified. Hand
+        // tracking gates inference below, while the recorder stays gap-free.
         if (isDetecting && currentTrackingMode === "asl_word") startWlaslCaptureLoop();
-        if (clip.size > 0) {
-            if (wlaslRequestInFlight) wlaslPendingClip = { clip, generation };
-            else submitWlaslClip(clip, generation);
+        if (shouldSubmitAslWordClip({ clipSize: clip.size, trackedHandFrames })) {
+            if (wlaslRequestInFlight) {
+                wlaslPendingClip = { clip, generation, trackedHandFrames };
+            } else {
+                submitWlaslClip(clip, generation, trackedHandFrames);
+            }
         }
     };
+    wlaslTrackedHandFrames = 0;
     wlaslRecorder.start();
     setCaptureActive(true);
-    startCaptureCountdown();
     wlaslCaptureStartedAt = performance.now();
-    showWordCaptureProgress(0, WLASL_CLIP_WINDOW_MS);
-    rawExtractionDisplay.innerText = "Watching for one ASL word…";
+    if (latestHandsVisible) {
+        showWordCaptureProgress(0, WLASL_CLIP_WINDOW_MS);
+        startCaptureCountdown();
+    } else {
+        showWaitingForInputGuide();
+    }
+    rawExtractionDisplay.innerText = latestHandsVisible
+        ? "Watching for one ASL word…"
+        : "Waiting for hands…";
     wlaslCaptureTimer = setTimeout(() => {
         if (wlaslRecorder?.state === 'recording') wlaslRecorder.stop();
     }, WLASL_CLIP_WINDOW_MS);
@@ -823,9 +839,11 @@ function stopWlaslCaptureLoop() {
     wlaslRecorderChunks = [];
     wlaslCaptureStartedAt = null;
     wlaslPendingClip = null;
+    wlaslTrackedHandFrames = 0;
 }
 
-async function submitWlaslClip(clip, generation) {
+async function submitWlaslClip(clip, generation, trackedHandFrames) {
+    if (!shouldSubmitAslWordClip({ clipSize: clip?.size, trackedHandFrames })) return;
     wlaslRequestInFlight = true;
     rawExtractionDisplay.innerText = "Recognizing…";
     setCaptureGuide("analyzing", "Checking your sign", "Please wait for the result.", 0);
@@ -869,7 +887,7 @@ async function submitWlaslClip(clip, generation) {
         const pending = wlaslPendingClip;
         wlaslPendingClip = null;
         if (pending && isDetecting && currentTrackingMode === "asl_word") {
-            submitWlaslClip(pending.clip, pending.generation);
+            submitWlaslClip(pending.clip, pending.generation, pending.trackedHandFrames);
         }
     }
 }
@@ -1211,12 +1229,11 @@ function showCaptureCountdown(value) {
 
 function startCaptureCountdown() {
     const visualOnly = currentTrackingMode === "asl_word";
-    const requiresTrackedHands = !visualOnly;
     if (
         !isDetecting
         || (!visualOnly && captureIsActive)
         || captureCountdownTimer
-        || (requiresTrackedHands && !latestHandsVisible)
+        || !latestHandsVisible
     ) return;
 
     const generation = ++captureCountdownGeneration;
@@ -1225,8 +1242,10 @@ function startCaptureCountdown() {
 
     const advance = () => {
         if (generation !== captureCountdownGeneration || !isDetecting) return;
-        if (requiresTrackedHands && !latestHandsVisible) {
-            prepareForNextCapture();
+        if (!latestHandsVisible) {
+            cancelCaptureCountdown();
+            if (!visualOnly) setCaptureActive(false);
+            showWaitingForInputGuide();
             return;
         }
 
@@ -1256,7 +1275,7 @@ function showWaitingForInputGuide() {
         currentTrackingMode === "asl_letter"
             ? "Place one hand fully inside the camera frame."
             : (currentTrackingMode === "asl_word"
-                ? "Recognition runs continuously; the countdown is only a visual rhythm cue."
+                ? "Show your hands to start recognition and the timing cue."
                 : "Keep your hands and upper body visible."),
         0
     );
@@ -1708,16 +1727,27 @@ async function processVideoFrames() {
 
         renderLandmarks(detectedPose, detectedHands);
         latestHandSignature = buildHandSignature(detectedHands);
-        latestHandsVisible = Boolean(detectedHands.landmarks?.length);
+        const handsWereVisible = latestHandsVisible;
+        latestHandsVisible = hasVisibleHandLandmarks(detectedHands);
 
         if (currentTrackingMode === "asl_word" && wlaslBackendReady) {
             // The backend consumes the camera clip directly; do not also run
             // the legacy landmark word model or let its idle state overwrite UI.
-            // Hand visibility only controls the dimming; it never gates the
-            // recorder or the frames submitted to WLASL.
+            // Keep the recorder continuous, but discard clips that do not
+            // contain enough hand-tracked frames before calling WLASL.
             syncCameraCaptureAppearance();
             if (!wlaslRecorder) startWlaslCaptureLoop();
-            updateWlaslCaptureProgress(currentTimeMs);
+            if (latestHandsVisible && wlaslRecorder?.state === 'recording') {
+                wlaslTrackedHandFrames++;
+            }
+            if (!latestHandsVisible) {
+                if (captureCountdownTimer) cancelCaptureCountdown();
+                rawExtractionDisplay.innerText = "Waiting for hands…";
+                showWaitingForInputGuide();
+            } else {
+                if (!handsWereVisible) startCaptureCountdown();
+                if (!captureCountdownTimer) updateWlaslCaptureProgress(currentTimeMs);
+            }
         } else if (staticAwaitingRelease) {
             updateStaticRelease(detectedHands, currentTimeMs);
         } else if (dynamicLetterAwaitingRelease) {
@@ -1740,9 +1770,12 @@ async function processVideoFrames() {
                 startCaptureCountdown();
             } else {
                 if (captureCountdownTimer) cancelCaptureCountdown();
+                if (currentTrackingMode !== "asl_letter") {
+                    rawExtractionDisplay.innerText = "Waiting for hands…";
+                }
                 showWaitingForInputGuide();
             }
-        } else if ((detectedHands.landmarks && detectedHands.landmarks.length > 0) || detectedPose) {
+        } else if (latestHandsVisible) {
             analyzeMovement(detectedHands, detectedPose, currentTimeMs);
         } else {
             resetInactivity();
@@ -2590,7 +2623,9 @@ function resetInactivity() {
     activeSubMetadata = null;
     dynamicSignStreak = 0;
     resetStaticHoldTimer();
-    rawExtractionDisplay.innerText = "...";
+    rawExtractionDisplay.innerText = (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word")
+        ? "Waiting for hands…"
+        : "...";
     confidenceProgressBar.style.width = "0%";
 
     if (currentTrackingMode === "asl_word" || currentTrackingMode === "csl_word") {
