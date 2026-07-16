@@ -1,55 +1,49 @@
-# WLASL integration plan
+# PhonSSM WLASL300 integration
 
-## What WLASL provides
+## Runtime contract
 
-WLASL is an isolated, word-level ASL **RGB video dataset** with standard
-100/300/1000/2000-gloss subsets. The official repository also publishes
-PyTorch I3D and pose-TGCN checkpoints. Those files are not TensorFlow.js model
-bundles and cannot be copied directly into this browser app.
+ASL Words now uses a local PyTorch PhonSSM service rather than the pretrained
+RGB I3D model.
 
-The app now keeps three independent recognition contracts:
+| Stage | Contract |
+| --- | --- |
+| Browser tracking | MediaPipe Pose (33) + left hand (21) + right hand (21) |
+| Capture window | Continuous 2.5 seconds, gated by sustained hand visibility |
+| Temporal preprocessing | Uniform sample or edge-pad to 30 frames |
+| Spatial preprocessing | Shoulder midpoint origin, shoulder-width scale |
+| Model input | `[batch, 30, 225]` float32 |
+| Model output | 300 logits in WLASL v0.3 top-300 order |
+| API | multipart `landmarks` JSON field on `POST /predict` |
 
-| Mode | Input | Asset location |
-| --- | --- | --- |
-| ASL spelling | 30 x 63 hand landmarks | project-root `asl-model*` files |
-| ASL words / WLASL | sampled square RGB clip | `models/asl/wlasl/` |
-| KSL words | KSL landmark graph/crops | existing `csl*` files |
+The browser uses stable semantic left/right slots and never copies one detected
+hand into both slots. The backend preprocessing mirrors the reference
+`training/preprocess_wlasl_full.py` implementation.
 
-No WLASL code imports or changes the KSL feature pipeline.
+## Checkpoint contract
 
-## Recommended first milestone
+The service loads `asl_service/models/phonssm_wlasl300.pt` strictly as the
+reference pose+hands configuration:
 
-Use WLASL100 first. Browser video models are much heavier than landmark models,
-and confirming the complete 100-class path is more useful than beginning with a
-large WLASL2000 download that may not run reliably on mobile hardware.
+- `input_mode="pose_hands"`
+- `num_landmarks=75`
+- `num_frames=30`
+- `num_signs=300`
+- `temperature=0.5`
 
-1. Download the official WLASL metadata, videos, and the matching pretrained
-   checkpoint. Keep the official train/validation/test split when evaluating.
-2. Confirm the checkpoint's exact input contract in its training code: frame
-   count, crop size, RGB channel order, normalization, and output-index mapping.
-3. Convert or export the network as a TensorFlow.js Layers model with one NTHWC
-   input: `[batch, time, height, width, 3]`. Conversion is a model-development
-   step, not a file rename; unsupported PyTorch operations may require an ONNX
-   or TensorFlow intermediate and output-parity testing.
-4. Put `model.json`, all generated weight shards, and `labels.json` under
-   `models/asl/wlasl/`. Labels must be an array in classifier output order.
-5. Edit `models/asl/wlasl/manifest.json` to match the exported checkpoint and
-   set `enabled` to `true`.
-6. Serve the repository over HTTP, choose **ASL Words**, and test complete signs
-   centered in the camera for the configured clip duration.
+The repository includes the authoritative 300-label order but not a model
+weight. The linked PhonSSM repository reports 74.41% WLASL300 top-1 accuracy,
+but its benchmark `best_model.pt` is ignored and absent from Git. Do not use its
+tracked 5,565-class dominant-hand checkpoint; its input and output contracts are
+different.
 
-## Required acceptance checks
+## Acceptance checks
 
-- Compare the converted model's logits against the original checkpoint on the
-  same preprocessed clip before trusting browser results.
-- Test on signers absent from training; random video splits can leak signer and
-  source appearance.
-- Verify every label index against the checkpoint rather than alphabetizing the
-  gloss list.
-- Measure browser memory and inference latency on the actual target device.
-- Add an explicit idle/no-sign policy. WLASL classes contain signs, so a plain
-  classifier will otherwise choose a word even when nobody is signing.
-
-The checked-in manifest stays disabled because this repository does not contain
-a WLASL checkpoint or its authoritative label-index file.
-
+- Confirm `/health` reports `model: "PhonSSM"`, 300 classes, and input shape
+  `[30, 225]`.
+- Load the checkpoint with strict key/shape validation.
+- Compare logits against the reference repository on the same preprocessed
+  landmark sequence before trusting production results.
+- Re-evaluate the motion, top-1 confidence, and top-two margin gates on held-out
+  webcam recordings; WLASL has no idle class.
+- Test signers absent from training and keep the WLASL usage agreement in scope
+  if the benchmark data is used to reproduce the checkpoint.

@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
+import json
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import CHECKPOINT_PATH, NUM_CLASSES
-from .inference import load_labels, predict_video
+from .config import (
+    CHECKPOINT_PATH,
+    FEATURE_COUNT,
+    FRAME_COUNT,
+    MODEL_NAME,
+    NUM_CLASSES,
+)
+from .inference import load_labels, load_model, predict_landmarks
 
-app = FastAPI(title="Dexter WLASL300 inference", version="0.2.0")
+app = FastAPI(title="Dexter PhonSSM WLASL300 inference", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[],
@@ -24,34 +28,40 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict:
     labels_ready = False
+    model_ready = False
+    model_error = None
     try:
         labels_ready = len(load_labels()) == NUM_CLASSES
     except (OSError, RuntimeError, ValueError):
         pass
+    if CHECKPOINT_PATH.exists():
+        try:
+            load_model()
+            model_ready = True
+        except (OSError, RuntimeError, ValueError) as error:
+            model_error = str(error)
     return {
-        "status": "ready" if CHECKPOINT_PATH.exists() and labels_ready else "missing_model",
+        "status": "ready" if model_ready and labels_ready else "missing_model",
+        "model": MODEL_NAME,
         "checkpoint": str(CHECKPOINT_PATH),
         "checkpointFound": CHECKPOINT_PATH.exists(),
+        "checkpointValid": model_ready,
         "labelsFound": labels_ready,
         "classes": NUM_CLASSES,
+        "inputShape": [FRAME_COUNT, FEATURE_COUNT],
+        "error": model_error,
     }
 
 
 @app.post("/predict")
-async def predict(video: UploadFile = File(...)) -> dict:
-    suffix = Path(video.filename or "clip.webm").suffix or ".webm"
-    temporary_path = None
+async def predict(landmarks: str = Form(...)) -> dict:
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temporary:
-            temporary_path = temporary.name
-            while chunk := await video.read(1024 * 1024):
-                temporary.write(chunk)
-        return predict_video(temporary_path)
+        frames = json.loads(landmarks)
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=422, detail="landmarks must be valid JSON.") from error
+    try:
+        return predict_landmarks(frames)
     except FileNotFoundError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
-    except (RuntimeError, ValueError) as error:
+    except (RuntimeError, TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    finally:
-        await video.close()
-        if temporary_path and os.path.exists(temporary_path):
-            os.unlink(temporary_path)

@@ -1,18 +1,37 @@
-# Install the official WLASL300 checkpoint
+# Install the PhonSSM WLASL300 checkpoint
 
-1. Read the WLASL Computational Use of Data Agreement at
-   `third_party/WLASL/start_kit/C-UDA-1.0.pdf`. WLASL states that the data is
-   for academic/computational use and not commercial use.
-2. Open the official pretrained-weights link:
-   <https://drive.google.com/file/d/1jALimVOB69ifYkeT0Pe297S1z4U3jC48/view>
-3. Download `archived.zip` and extract it outside the repository.
-4. Open its `I3D/archived/asl300/` directory. Prefer the checkpoint whose name
-   contains `nslt_300_005100` (the official code marks it as the best result).
-   The reported-results checkpoint may contain `nslt_300_005500`.
-5. Copy the selected `.pt` file here and rename it exactly to:
+The service expects this exact file:
 
-   `wlasl300.pt`
+`asl_service/models/phonssm_wlasl300.pt`
 
-The final path must be `asl_service/models/wlasl300.pt`. Do not commit this
-large checkpoint to Git.
+It must be the pose+hands WLASL300 checkpoint produced by the reference
+`training/benchmark_external.py --dataset wlasl --subset 300` run, with:
 
+- 300 output classes
+- input mode `pose_hands`
+- 75 landmarks × 3 coordinates
+- 30 frames
+- classifier temperature `0.5`
+
+The vendored architecture is pinned to upstream commit
+`5169623e57939d08f71eb08aad94f448c89c737d`; checkpoints from a different
+revision must still pass strict state-dictionary validation.
+
+The loader accepts the reference checkpoint wrapper containing
+`model_state_dict`, a `state_dict` wrapper, or a raw PyTorch state dictionary.
+It validates every key and tensor shape strictly before the service starts
+classifying.
+
+## Availability limitation
+
+<https://github.com/anonymoussubmitter-167/phon-ssm> includes the WLASL300
+metrics and training history but not the corresponding weight. Its benchmark
+checkpoint path is excluded by the repository's `*.pt` ignore rule. The only
+tracked PhonSSM checkpoint is for the separate 5,565-class, dominant-hand model
+and is not compatible with this service.
+
+Obtain the WLASL300 `best_model.pt` from the authors or reproduce the benchmark
+training run, then copy it here and rename it to `phonssm_wlasl300.pt`.
+
+The old RGB I3D file `wlasl300.pt` is no longer loaded. Model weights remain
+ignored by Git; do not commit them without confirming redistribution rights.

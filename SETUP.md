@@ -21,27 +21,29 @@ VS Code Live Server can be used instead of `python -m http.server 8000`.
 
 ## Optional: ASL Words
 
-ASL Words uses the local WLASL300 Python service and requires additional setup.
+ASL Words uses the local PhonSSM WLASL300 service and requires its Python
+dependencies plus a matching checkpoint.
 
-### 1. Install the WLASL source
+### 1. Install the service
 
 ```powershell
-git clone --depth 1 https://github.com/dxli94/WLASL.git third_party/WLASL
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r asl_service\requirements.txt
 ```
 
-Read `third_party/WLASL/start_kit/C-UDA-1.0.pdf` before using its dataset or
-checkpoint; WLASL restricts its material to academic/computational,
-non-commercial use.
+The model consumes the pose and hand landmarks already extracted in the
+browser; the official WLASL I3D source is not required.
 
-### 2. Install the WLASL300 checkpoint
+### 2. Install the PhonSSM WLASL300 checkpoint
 
-1. Download the official `archived.zip` from
-   <https://drive.google.com/file/d/1jALimVOB69ifYkeT0Pe297S1z4U3jC48/view>.
-2. Extract it and locate the `.pt` checkpoint containing `nslt_300_005100`
-   under `I3D/archived/asl300/`.
-3. Copy it to `asl_service/models/wlasl300.pt`.
+Follow `asl_service/models/README.md`. Copy the pose+hands WLASL300
+`best_model.pt` to:
+
+`asl_service/models/phonssm_wlasl300.pt`
+
+The linked reference repository does not currently publish that benchmark
+weight. Its 5,565-class checkpoint and the old I3D `wlasl300.pt` are not
+compatible substitutes.
 
 ### 3. Start the ASL service
 
@@ -57,8 +59,9 @@ Confirm <http://127.0.0.1:8001/health> reports `"status":"ready"`, then select
 ## Troubleshooting
 
 - `No module named uvicorn`: use `.\.venv\Scripts\python.exe`, not system Python.
-- `missing_model`: confirm both `asl_service/models/wlasl300.pt` and
-  `third_party/WLASL/` exist.
+- `missing_model`: confirm
+  `asl_service/models/phonssm_wlasl300.pt` exists and is the 300-class
+  pose+hands checkpoint.
 - Camera unavailable: allow camera permission and open the site through
   `localhost`, not directly as a local file.
 - Stale files after pulling: hard-refresh with `Ctrl+Shift+R`.

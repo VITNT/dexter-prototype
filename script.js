@@ -86,6 +86,7 @@ let wlaslCaptureStartedAt = null;
 let wlaslRequestInFlight = false;
 let wlaslPendingClip = null;
 let wlaslCaptureGeneration = 0;
+let wlaslLandmarkFrames = [];
 let aslModelMetadata = null;
 let aslWordModelMetadata = null;
 let cslModelMetadata = null;
@@ -121,7 +122,7 @@ const REQUIRED_FRAMES = LEGACY_REQUIRED_FRAMES;
 const CONFIDENCE_THRESHOLD = 0.90;
 const KSL_STATIC_CONFIDENCE_THRESHOLD = 0.75;
 const WLASL_API_URL = 'http://127.0.0.1:8001';
-// Match the 64-frame WLASL training window at typical 25-30 FPS.
+// Collect a complete sign window; the backend samples its landmarks to 30 frames.
 const WLASL_CLIP_WINDOW_MS = 2500;
 const WLASL_BACKEND_CONFIDENCE = 0.55;
 const MIN_CAPTURE_HAND_CONFIDENCE = 0.65;
@@ -428,7 +429,9 @@ async function checkWlaslBackend() {
     try {
         const response = await fetch(`${WLASL_API_URL}/health`);
         const status = response.ok ? await response.json() : null;
-        wlaslBackendReady = status?.status === 'ready' && status?.classes === 300;
+        wlaslBackendReady = status?.status === 'ready'
+            && status?.model === 'PhonSSM'
+            && status?.classes === 300;
     } catch (error) {
         wlaslBackendReady = false;
     }
@@ -543,8 +546,8 @@ window.selectMode = async function (modeId, modeLabel, element) {
         await checkWlaslBackend();
         guessLabelUI.innerText = `Mode: ${modeLabel}`;
         rawOutputUI.innerText = (wlaslBackendReady || aslWordModel)
-            ? `[ASL WLASL300]`
-            : "Start the WLASL service on port 8001";
+            ? `[ASL PhonSSM WLASL300]`
+            : "Start the PhonSSM service on port 8001";
         if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
@@ -615,8 +618,8 @@ window.changeMode = async function () {
         guessLabelDisplay.innerText = "Mode: ASL Words";
         await checkWlaslBackend();
         rawExtractionDisplay.innerText = (wlaslBackendReady || aslWordModel)
-            ? "[ASL WLASL300]"
-            : "Start the WLASL service on port 8001";
+            ? "[ASL PhonSSM WLASL300]"
+            : "Start the PhonSSM service on port 8001";
         if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
@@ -773,6 +776,7 @@ function startWlaslCaptureLoop() {
         .find(type => MediaRecorder.isTypeSupported(type));
     try {
         wlaslRecorderChunks = [];
+        wlaslLandmarkFrames = [];
         wlaslRecorder = mimeType
             ? new MediaRecorder(cameraStream, { mimeType })
             : new MediaRecorder(cameraStream);
@@ -789,15 +793,16 @@ function startWlaslCaptureLoop() {
     wlaslRecorder.onstop = () => {
         clearTimeout(wlaslCaptureTimer);
         if (generation !== wlaslCaptureGeneration) return;
+        const landmarkFrames = wlaslLandmarkFrames;
         const clip = new Blob(wlaslRecorderChunks, { type: wlaslRecorder.mimeType || 'video/webm' });
         wlaslRecorder = null;
         wlaslRecorderChunks = [];
         // Keep recording while the previous window is classified. The timer is
         // only a visual rhythm cue and never creates a gap in model input.
         if (isDetecting && currentTrackingMode === "asl_word") startWlaslCaptureLoop();
-        if (clip.size > 0) {
-            if (wlaslRequestInFlight) wlaslPendingClip = { clip, generation };
-            else submitWlaslClip(clip, generation);
+        if (clip.size > 0 && landmarkFrames.length > 0) {
+            if (wlaslRequestInFlight) wlaslPendingClip = { clip, generation, landmarkFrames };
+            else submitWlaslClip(clip, generation, landmarkFrames);
         }
     };
     wlaslRecorder.start();
@@ -823,14 +828,16 @@ function stopWlaslCaptureLoop() {
     wlaslRecorderChunks = [];
     wlaslCaptureStartedAt = null;
     wlaslPendingClip = null;
+    wlaslLandmarkFrames = [];
 }
 
-async function submitWlaslClip(clip, generation) {
+async function submitWlaslClip(clip, generation, landmarkFrames) {
+    if (!Array.isArray(landmarkFrames) || landmarkFrames.length === 0) return;
     wlaslRequestInFlight = true;
     rawExtractionDisplay.innerText = "Recognizing…";
     setCaptureGuide("analyzing", "Checking your sign", "Please wait for the result.", 0);
     const form = new FormData();
-    form.append('video', clip, 'wlasl-window.webm');
+    form.append('landmarks', JSON.stringify(landmarkFrames));
     try {
         const response = await fetch(`${WLASL_API_URL}/predict`, { method: 'POST', body: form });
         const result = await response.json();
@@ -862,14 +869,14 @@ async function submitWlaslClip(clip, generation) {
         }
     } catch (error) {
         console.error("WLASL prediction failed:", error);
-        rawExtractionDisplay.innerText = "WLASL service unavailable";
-        setCaptureGuide("waiting", "Recognition unavailable", "Check the WLASL service, then try again.", 0);
+        rawExtractionDisplay.innerText = "PhonSSM service unavailable";
+        setCaptureGuide("waiting", "Recognition unavailable", "Check the PhonSSM service, then try again.", 0);
     } finally {
         wlaslRequestInFlight = false;
         const pending = wlaslPendingClip;
         wlaslPendingClip = null;
         if (pending && isDetecting && currentTrackingMode === "asl_word") {
-            submitWlaslClip(pending.clip, pending.generation);
+            submitWlaslClip(pending.clip, pending.generation, pending.landmarkFrames);
         }
     }
 }
@@ -1711,12 +1718,15 @@ async function processVideoFrames() {
         latestHandsVisible = Boolean(detectedHands.landmarks?.length);
 
         if (currentTrackingMode === "asl_word" && wlaslBackendReady) {
-            // The backend consumes the camera clip directly; do not also run
-            // the legacy landmark word model or let its idle state overwrite UI.
-            // Hand visibility only controls the dimming; it never gates the
-            // recorder or the frames submitted to WLASL.
+            // PhonSSM consumes the pose + left hand + right hand landmarks
+            // already produced for the UI. Keep the recorder only as the
+            // gap-free 2.5-second window clock.
             syncCameraCaptureAppearance();
             if (!wlaslRecorder) startWlaslCaptureLoop();
+            if (wlaslRecorder?.state === 'recording') {
+                const assignedHands = assignDetectedHands(detectedHands, detectedPose);
+                wlaslLandmarkFrames.push(buildHolisticFrame(detectedPose, detectedHands, assignedHands));
+            }
             updateWlaslCaptureProgress(currentTimeMs);
         } else if (staticAwaitingRelease) {
             updateStaticRelease(detectedHands, currentTimeMs);
@@ -2070,7 +2080,7 @@ function inferDynamicGesture() {
             return;
         }
         if (currentTrackingMode === "asl_word" && !aslWordModel && !wlaslBackendReady) {
-            rawExtractionDisplay.innerText = "Start the WLASL service on port 8001";
+            rawExtractionDisplay.innerText = "Start the PhonSSM service on port 8001";
         }
         showDynamicIdle(0, true);
         return;
@@ -2313,7 +2323,7 @@ function inferStaticGesture(hand, timestamp = performance.now()) {
 }
 
 // Fingerpose gets confused between similar hand shapes, so retain the original
-// browser-only landmark geometry corrections used before the RGB model.
+// browser-only landmark geometry corrections used by the optional RGB bundle.
 function refineGeometricEdges(currentGuess, hand) {
     let corrected = currentGuess;
 

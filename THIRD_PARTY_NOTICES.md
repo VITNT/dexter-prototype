@@ -1,5 +1,17 @@
 # Third-party notices
 
+## PhonSSM
+
+The architecture source under `asl_service/phonssm/` is derived from:
+
+<https://github.com/anonymoussubmitter-167/phon-ssm>
+
+Integrated from commit `5169623e57939d08f71eb08aad94f448c89c737d`.
+
+The upstream README states that the project is released under the MIT License.
+The upstream repository did not include a separate license file when this code
+was integrated. No PhonSSM checkpoint is redistributed by this repository.
+
 ## Khmer Sign Language Translation System
 
 The KSL word weights in `models/ksl/legacy-word-v1/`, the static LandmarkNet

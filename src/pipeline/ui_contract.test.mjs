@@ -92,6 +92,26 @@ assert.match(
   "Only landmark-gated modes may wait for MediaPipe hand tracking."
 );
 assert.match(translatorScript, /lockRecognition:\s*false/, "WLASL results must not use the timer-test hand release gate.");
+assert.match(
+  translatorScript,
+  /status\?\.model\s*===\s*["']PhonSSM["']/,
+  "ASL Words must only accept the PhonSSM backend contract."
+);
+assert.match(
+  translatorScript,
+  /wlaslLandmarkFrames\.push\(buildHolisticFrame\(detectedPose, detectedHands, assignedHands\)\)/,
+  "PhonSSM must receive pose plus stable left/right hand landmarks."
+);
+assert.match(
+  translatorScript,
+  /form\.append\(["']landmarks["'],\s*JSON\.stringify\(landmarkFrames\)\)/,
+  "ASL Words must submit landmark windows rather than RGB video to PhonSSM."
+);
+assert.doesNotMatch(
+  translatorScript,
+  /form\.append\(["']video["']/,
+  "The PhonSSM request must not upload the obsolete I3D video clip."
+);
 assert.doesNotMatch(translatorScript, /if \(!captureIsActive \|\| !wlaslBackendReady/, "Countdown state must not gate ASL-word recording.");
 assert.match(translatorScript, /if \(visualOnly\) return;/, "ASL-word countdown completion must not clear recognition state.");
 assert.match(translatorScript, /if \(!captureIsActive\)/, "Frame processing must be gated until capture starts.");

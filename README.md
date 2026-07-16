@@ -31,11 +31,14 @@ Then open:
 - `http://localhost:8000/recorder.html` for the dataset recorder prototype
 - `http://localhost:8000/trainer.html` for the browser trainer prototype
 
-## WLASL300 service
+## PhonSSM WLASL300 service
 
-The isolated ASL-word backend lives in `asl_service/` and uses the official
-PyTorch I3D implementation under `third_party/WLASL/`. Installation details for
-the required checkpoint are in `asl_service/models/README.md`.
+The isolated ASL-word backend lives in `asl_service/` and uses the pose+hands
+PhonSSM architecture from
+<https://github.com/anonymoussubmitter-167/phon-ssm>. The browser sends the
+MediaPipe pose and hand landmarks it already tracks, so no RGB I3D model or
+second server-side landmark detector is required. Checkpoint installation
+details are in `asl_service/models/README.md`.
 
 After installing the checkpoint and Python requirements, run:
 
@@ -44,13 +47,18 @@ After installing the checkpoint and Python requirements, run:
 ```
 
 Check `http://127.0.0.1:8001/health`. It should report `"status":"ready"`.
-The live ASL-word client will use a rolling sign window; 300 ms is reserved for
-prediction checks/cooldown, not used as the full sign duration. Each 2.5-second
-capture is decoded into a motion-focused, contiguous 64-frame window using the
-same 256-to-224 spatial preprocessing as the released WLASL I3D checkpoint.
+The live ASL-word client uses a rolling 2.5-second sign window. Each window is
+uniformly sampled to 30 frames of 33 pose, 21 left-hand, and 21 right-hand
+landmarks, then shoulder-centered and shoulder-width-scaled exactly like the
+reference WLASL training pipeline.
 Because WLASL has no idle class, motion, confidence, and top-two-margin gates
 reject no-sign windows instead of forcing an arbitrary vocabulary word.
 Pausing or resuming the camera clears all cached recognition frames.
+
+The linked PhonSSM repository does not publish its WLASL300 `best_model.pt`—the
+benchmark weight is excluded by its `*.pt` ignore rule. The service is therefore
+ready for a matching checkpoint, but cannot report `"ready"` until that weight
+is obtained from the authors or reproduced with their benchmark training script.
 
 ## KSL v2 Pipeline
 
@@ -99,11 +107,10 @@ or independently validate the KSL v2 temporal model. See
 [`docs/ksl-external-resources.md`](docs/ksl-external-resources.md) for the
 compatibility audit and the additional data needed for temporal retraining.
 
-The crop branch is a compact browser-trainable appearance stream, not a
-pretrained WLASL video backbone. WLASL now has a separate RGB-video bundle at
-`models/asl/wlasl/`; see its README and manifest for the browser model contract.
-The end-to-end acquisition, conversion, and validation checklist is in
-`docs/wlasl-integration.md`.
+The crop branch is a compact browser-trainable appearance stream, not the ASL
+word backbone. The disabled RGB-video bundle under `models/asl/wlasl/` remains
+only as an optional legacy browser path; the active backend contract is
+documented in `docs/wlasl-integration.md`.
 Optional legacy ASL word files can still be installed as
 `asl_word_model.json`, `asl_word_model.weights.bin`, `asl_word_labels.json`, and
 `asl_word_model_metadata.json`; without them, ASL Words reports that no word

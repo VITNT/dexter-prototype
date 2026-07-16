@@ -4,7 +4,11 @@ import cv2
 import numpy as np
 import torch
 
-from .config import FRAME_COUNT, IMAGE_SIZE, RESIZE_SIZE
+# Retained only for the historical I3D preprocessing tests. The live service
+# now imports ``phonssm_preprocessing`` instead of this module.
+FRAME_COUNT = 64
+IMAGE_SIZE = 224
+RESIZE_SIZE = 256
 
 
 def sample_frame_indices(source_count: int, target_count: int = FRAME_COUNT) -> np.ndarray:

@@ -1,31 +1,19 @@
-"""Slow smoke test for the installed checkpoint; it does not test accuracy."""
+"""Slow smoke test for an installed PhonSSM checkpoint; not an accuracy test."""
 
-import tempfile
-from pathlib import Path
-
-import cv2
 import numpy as np
 
-from asl_service.inference import predict_video
+from asl_service.inference import predict_landmarks
 
 
-with tempfile.TemporaryDirectory() as directory:
-    video_path = Path(directory) / "synthetic.mp4"
-    writer = cv2.VideoWriter(
-        str(video_path),
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        25.0,
-        (256, 256),
-    )
-    if not writer.isOpened():
-        raise RuntimeError("OpenCV could not create the smoke-test video.")
-    for frame_index in range(45):
-        frame = np.zeros((256, 256, 3), dtype=np.uint8)
-        cv2.circle(frame, (40 + frame_index * 3, 128), 24, (255, 255, 255), -1)
-        writer.write(frame)
-    writer.release()
+frames = np.zeros((45, 75, 3), dtype=np.float32)
+frames[:, 11] = [0.35, 0.4, 0]
+frames[:, 12] = [0.65, 0.4, 0]
+for frame_index in range(len(frames)):
+    frames[frame_index, 33:54, 0] = 0.35 + frame_index * 0.003
+    frames[frame_index, 33:54, 1] = 0.55
 
-    result = predict_video(str(video_path))
-    assert len(result["predictions"]) == 3
-    assert result["word"]
-    print(result)
+result = predict_landmarks(frames.tolist())
+assert result["model"] == "PhonSSM"
+assert len(result["predictions"]) == 3
+assert result["word"]
+print(result)
