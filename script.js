@@ -62,7 +62,10 @@ let confidenceProgressBar = document.getElementById('confidenceBar');
 let confidencePctDisplay = document.getElementById('confidencePct');
 let guessLabelDisplay = document.getElementById('guessLabel');
 let sentenceBuilderDisplay = document.getElementById('builtSentence');
-let finalTranslationDisplay = document.getElementById('translatedResult');
+let translationStatusDisplay = document.getElementById('translationStatus');
+let bilingualTranslationDisplay = document.getElementById('bilingualTranslation');
+let khmerTranslationDisplay = document.getElementById('khmerTranslation');
+let englishTranslationDisplay = document.getElementById('englishTranslation');
 let speakTranslationButton = document.getElementById('speakTranslationBtn');
 let captureGuide = document.getElementById('captureGuide');
 let captureStateLabel = document.getElementById('captureStateLabel');
@@ -488,7 +491,7 @@ window.selectMode = async function (modeId, modeLabel, element) {
     if (currentTrackingMode === "csl_word") {
         guessLabelUI.innerText = "Mode: CSL Words";
         rawOutputUI.innerText = "[CSL]";
-        if (outputLangUI) outputLangUI.innerText = "CSL";
+        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
         activeAIModel = cslModel;
         activeVocabulary = cslVocab;
         activeModelMetadata = cslModelMetadata;
@@ -500,7 +503,7 @@ window.selectMode = async function (modeId, modeLabel, element) {
         rawOutputUI.innerText = (wlaslBackendReady || aslWordModel)
             ? `[ASL WLASL300]`
             : "ASL Words backend is waking or unavailable";
-        if (outputLangUI) outputLangUI.innerText = "English";
+        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
         activeModelMetadata = aslWordModelMetadata;
@@ -509,7 +512,7 @@ window.selectMode = async function (modeId, modeLabel, element) {
     } else {
         guessLabelUI.innerText = "Mode: ASL Spelling";
         rawOutputUI.innerText = "...";
-        if (outputLangUI) outputLangUI.innerText = "English";
+        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
         activeAIModel = aslModel;
         activeVocabulary = aslVocab;
         activeModelMetadata = aslModelMetadata;
@@ -560,7 +563,7 @@ window.changeMode = async function () {
     if (currentTrackingMode === "csl_word") {
         guessLabelDisplay.innerText = "Mode: CSL Words";
         rawExtractionDisplay.innerText = "[CSL]";
-        if (outputLangUI) outputLangUI.innerText = "CSL";
+        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
         activeAIModel = cslModel;
         activeVocabulary = cslVocab;
         activeModelMetadata = cslModelMetadata;
@@ -572,7 +575,7 @@ window.changeMode = async function () {
         rawExtractionDisplay.innerText = (wlaslBackendReady || aslWordModel)
             ? "[ASL WLASL300]"
             : "ASL Words backend is waking or unavailable";
-        if (outputLangUI) outputLangUI.innerText = "English";
+        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
         activeModelMetadata = aslWordModelMetadata;
@@ -581,7 +584,7 @@ window.changeMode = async function () {
     } else {
         guessLabelDisplay.innerText = "Mode: ASL Spelling";
         rawExtractionDisplay.innerText = "...";
-        if (outputLangUI) outputLangUI.innerText = "English";
+        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
         activeAIModel = aslModel;
         activeVocabulary = aslVocab;
         activeModelMetadata = aslModelMetadata;
@@ -894,8 +897,15 @@ window.translateSentence = async function () {
         }
 
         const data = await response.json();
-        const translation = typeof data.translation === "string" ? data.translation.trim() : "";
-        setFinalTranslation(translation || "Error: Empty response.", { speakable: Boolean(translation) });
+        const translation = data?.translation;
+        const hasBilingualTranslation = typeof translation?.khmer === "string"
+            && Boolean(translation.khmer.trim())
+            && typeof translation?.english === "string"
+            && Boolean(translation.english.trim());
+        setFinalTranslation(
+            hasBilingualTranslation ? translation : "Error: Empty bilingual response.",
+            { speakable: hasBilingualTranslation }
+        );
     } catch (err) {
         console.error("Network issue:", err);
         setFinalTranslation("Network Error. Please try again.");
@@ -903,13 +913,13 @@ window.translateSentence = async function () {
 }
 
 const speechSynthesisSupported = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
-let speakableTranslation = "";
+let speakableTranslations = [];
 let activeTranslationUtterance = null;
 
 function updateSpeakTranslationButton(isSpeaking = false) {
     if (!speakTranslationButton) return;
 
-    const canSpeak = speechSynthesisSupported && Boolean(speakableTranslation);
+    const canSpeak = speechSynthesisSupported && speakableTranslations.length > 0;
     speakTranslationButton.disabled = !canSpeak;
     speakTranslationButton.classList.toggle("is-speaking", isSpeaking);
     speakTranslationButton.setAttribute("aria-label", isSpeaking ? "Stop speaking" : "Speak translation");
@@ -919,41 +929,68 @@ function updateSpeakTranslationButton(isSpeaking = false) {
 }
 
 function cancelTranslationSpeech() {
-    if (speechSynthesisSupported) window.speechSynthesis.cancel();
     activeTranslationUtterance = null;
+    if (speechSynthesisSupported) window.speechSynthesis.cancel();
     updateSpeakTranslationButton(false);
 }
 
 function setFinalTranslation(text, { speakable = false } = {}) {
     cancelTranslationSpeech();
-    speakableTranslation = speakable ? text.trim() : "";
-    if (finalTranslationDisplay) finalTranslationDisplay.innerText = text;
+    const isBilingual = text
+        && typeof text === "object"
+        && typeof text.khmer === "string"
+        && typeof text.english === "string";
+
+    speakableTranslations = speakable && isBilingual
+        ? [
+            { text: text.khmer.trim(), lang: "km-KH" },
+            { text: text.english.trim(), lang: "en-US" }
+        ].filter(item => item.text)
+        : [];
+
+    if (translationStatusDisplay) {
+        translationStatusDisplay.innerText = isBilingual ? "" : String(text || "");
+    }
+    if (bilingualTranslationDisplay) bilingualTranslationDisplay.hidden = !isBilingual;
+    if (khmerTranslationDisplay) khmerTranslationDisplay.innerText = isBilingual ? text.khmer.trim() : "";
+    if (englishTranslationDisplay) englishTranslationDisplay.innerText = isBilingual ? text.english.trim() : "";
     updateSpeakTranslationButton(false);
 }
 
-window.speakTranslation = function () {
-    if (!speechSynthesisSupported || !speakableTranslation) return;
-
-    if (activeTranslationUtterance) {
-        cancelTranslationSpeech();
+function speakTranslationAtIndex(index) {
+    const speechItem = speakableTranslations[index];
+    if (!speechItem) {
+        activeTranslationUtterance = null;
+        updateSpeakTranslationButton(false);
         return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(speakableTranslation);
-    utterance.lang = "en-US";
+    const utterance = new SpeechSynthesisUtterance(speechItem.text);
+    utterance.lang = speechItem.lang;
     utterance.onstart = () => {
         if (activeTranslationUtterance === utterance) updateSpeakTranslationButton(true);
     };
     utterance.onend = () => {
         if (activeTranslationUtterance !== utterance) return;
         activeTranslationUtterance = null;
-        updateSpeakTranslationButton(false);
+        speakTranslationAtIndex(index + 1);
     };
     utterance.onerror = utterance.onend;
 
     activeTranslationUtterance = utterance;
     updateSpeakTranslationButton(true);
     window.speechSynthesis.speak(utterance);
+}
+
+window.speakTranslation = function () {
+    if (!speechSynthesisSupported || speakableTranslations.length === 0) return;
+
+    if (activeTranslationUtterance) {
+        cancelTranslationSpeech();
+        return;
+    }
+
+    speakTranslationAtIndex(0);
 }
 
 updateSpeakTranslationButton(false);

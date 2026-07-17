@@ -162,8 +162,8 @@ host-level rate limits before sharing an expensive public GPU endpoint.
 
 Use the separate production-only [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md) guide.
 It deploys the browser app and JavaScript routes to Vercel, the Python inference
-service to a Hugging Face Docker Space, and the restricted WLASL assets to
-private Vercel Blob.
+service to Google Cloud Run, and the restricted WLASL assets to private Vercel
+Blob with its credential in Google Secret Manager.
 
 ## 6. Verify
 

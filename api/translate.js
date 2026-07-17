@@ -1,4 +1,32 @@
-module.exports = async function handler(req, res) {
+function parseBilingualTranslation(rawText) {
+    const cleaned = String(rawText || "")
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+    const objectStart = cleaned.indexOf("{");
+    const objectEnd = cleaned.lastIndexOf("}");
+    const jsonText = objectStart >= 0 && objectEnd > objectStart
+        ? cleaned.slice(objectStart, objectEnd + 1)
+        : cleaned;
+
+    let parsed;
+    try {
+        parsed = JSON.parse(jsonText);
+    } catch {
+        return null;
+    }
+
+    const khmer = typeof parsed?.khmer === "string" ? parsed.khmer.trim() : "";
+    let english = typeof parsed?.english === "string" ? parsed.english.trim() : "";
+    if (!khmer || !english) return null;
+
+    english = english.charAt(0).toUpperCase() + english.slice(1);
+    if (!/[.!?]$/.test(english)) english += ".";
+
+    return { khmer, english };
+}
+
+async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: "Method Not Allowed" });
     }
@@ -22,22 +50,18 @@ module.exports = async function handler(req, res) {
 
         const model = process.env.GEMINI_MODEL || 'gemma-4-31b-it';
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${API_KEY}`;
-        const prompt = `You are an ASL gloss-to-English translator.
+        const prompt = `You interpret sign-language gloss into natural Khmer and English.
 
-ASL gloss is a written representation of American Sign Language where each word is an English label for a specific sign. The words are NOT foreign language words — they are literal English names for hand signs. Do NOT try to interpret or translate the individual words as if they are from another language. Just rearrange them into a natural English sentence.
+The input can be either:
+- ASL gloss, where words are literal English labels for American Sign Language signs; or
+- CSL/KSL gloss, where words are Khmer labels for Cambodian/Khmer Sign Language signs.
 
-Example:
-ASL gloss: ME WANT GO STORE
-English: I want to go to the store.
+Infer natural sentence order from the complete gloss, but do not invent details that are not present. The Khmer and English translations must express the same meaning.
 
-Rules:
-- Output ONLY the final English sentence, nothing else
-- Treat every input word as a literal English sign label
-- Do NOT interpret words as Japanese, Spanish, or any other language
-- No explanations, reasoning, or extra text
+Return ONLY valid JSON in exactly this shape, with no markdown or explanation:
+{"khmer":"<natural Khmer sentence>","english":"<natural English sentence>"}
 
-ASL gloss: ${glossInput}
-English:`;
+Sign-language gloss: ${glossInput}`;
 
         const apiResponse = await fetch(endpoint, {
             method: "POST",
@@ -46,7 +70,7 @@ English:`;
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: 0.2,
-                    maxOutputTokens: 50,
+                    maxOutputTokens: 150,
                     topP: 0.8,
                     thinkingConfig: {
                         thinkingLevel: "MINIMAL"
@@ -65,35 +89,21 @@ English:`;
             });
         }
 
-        // filter out the model's internal thinking process so we only return the final translation
+        // Filter out the model's internal thinking process so we only parse the final answer.
         const parts = payload?.candidates?.[0]?.content?.parts || [];
-        const finalPart = parts.filter(p => !p.thought).pop();
-        let rawText = finalPart?.text || "";
+        const finalText = parts
+            .filter(part => !part.thought)
+            .map(part => part.text || "")
+            .join("");
+        const translation = parseBilingualTranslation(finalText);
 
-        // clean up any markdown formatting or bullet points the model might have added
-        let sentence = rawText
-            .replace(/^[*\-•\d.\)\s"]+/gm, "")
-            .replace(/^["']|["']$/g, "")
-            .trim();
-
-        // if it still managed to ramble, usually the final sentence is the actual answer
-        const lines = sentence.split("\n").filter(l => l.trim() !== "");
-        sentence = (lines.pop() || "").trim();
-
-        // capitalize the first letter and add a period if it's missing
-        if (sentence) {
-            sentence =
-                sentence.charAt(0).toUpperCase() +
-                sentence.slice(1);
-
-            if (!sentence.endsWith(".")) {
-                sentence += ".";
-            }
-        } else {
-            sentence = "Unable to generate translation.";
+        if (!translation) {
+            return res.status(502).json({
+                error: "Translation model returned an invalid bilingual response."
+            });
         }
 
-        return res.status(200).json({ translation: sentence });
+        return res.status(200).json({ translation });
 
     } catch (err) {
         console.error("Server Crash:", err);
@@ -101,4 +111,7 @@ English:`;
             error: "Failed to connect to the AI model."
         });
     }
-};
+}
+
+module.exports = handler;
+module.exports.parseBilingualTranslation = parseBilingualTranslation;
