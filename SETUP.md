@@ -82,7 +82,8 @@ third_party/WLASL/code/I3D/preprocess/wlasl_class_list.txt
 ```
 
 WLASL is limited to academic/computational, non-commercial use. Its source and
-checkpoint are intentionally not committed or included in the Vercel bundle.
+checkpoint are intentionally not committed or included in either deployment
+bundle.
 
 Start the backend on Windows:
 
@@ -124,23 +125,28 @@ With the basic server, ASL spelling and CSL/KSL work, and ASL Words still uses
 
 ## 4. Package the ASL Words backend
 
-The Docker build deliberately uses the locally installed restricted WLASL
-files. Build it only after the health check above succeeds:
+The Docker build deliberately excludes the locally installed restricted WLASL
+files. The container downloads them from private Vercel Blob at runtime, using
+`BLOB_READ_WRITE_TOKEN` from the environment:
 
 ```powershell
-docker build -f asl_service/Dockerfile -t dexter-asl .
-docker run --rm -p 8001:8001 `
+docker build -t dexter-asl .
+docker run --rm -p 8001:7860 `
+  --env-file .env.local `
   -e DEXTER_ALLOWED_ORIGINS=http://localhost:8000 `
   dexter-asl
 ```
 
-Deploy that image to a container service capable of running PyTorch. CPU works
-but can be slow; GPU compute gives substantially better response time. Configure:
+`BLOB_READ_WRITE_TOKEN` must be present in `.env.local`, normally after linking
+the Vercel project and running `vercel env pull`. CPU works but can be slow;
+GPU compute gives substantially better response time. Configure:
 
 ```text
-PORT=8001
+PORT=7860
 DEXTER_ALLOWED_ORIGINS=https://your-project.vercel.app
 MAX_UPLOAD_BYTES=20971520
+WLASL_MAX_CONCURRENT_INFERENCES=1
+WLASL_INFERENCE_QUEUE_TIMEOUT_SECONDS=30
 ```
 
 For changing Vercel preview domains, the backend can additionally use:
@@ -155,8 +161,9 @@ host-level rate limits before sharing an expensive public GPU endpoint.
 ## 5. Deploy to Vercel
 
 Use the separate production-only [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md) guide.
-It deploys the browser app and Python inference Function under one Vercel
-domain, with the restricted WLASL assets stored privately in Vercel Blob.
+It deploys the browser app and JavaScript routes to Vercel, the Python inference
+service to a Hugging Face Docker Space, and the restricted WLASL assets to
+private Vercel Blob.
 
 ## 6. Verify
 
@@ -180,12 +187,12 @@ Manual checks:
 ## Files that must stay in Git
 
 - `index.html`, `learn.html`, `styles.css`, and browser scripts
-- `api/*.js` and `api/index.py`
+- `api/*.js`
 - `src/pipeline/*.mjs` runtime modules
 - `asl-model.json`, `asl-model.weights.bin`, and `asl-labels.json`
 - `models/csl/**` and `models/asl/wlasl/manifest.json`
 - `images/**`, `logo.png`, `vercel.json`, and `.vercelignore`
-- `asl_service` source, root/Python requirements, Dockerfile, and model-install README
+- `asl_service` source, Python requirements, root Dockerfile, and model-install README
 
 Files intentionally excluded from Git include secrets, virtual environments,
 the WLASL repository/checkpoint, external datasets, recordings, caches, and

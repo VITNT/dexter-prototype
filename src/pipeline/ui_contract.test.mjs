@@ -106,6 +106,11 @@ assert.match(
   "ASL Words must cancel its visual timer and return to waiting when idle."
 );
 assert.match(translatorScript, /lockRecognition:\s*false/, "WLASL results must not use the timer-test hand release gate.");
+assert.doesNotMatch(
+  translatorScript,
+  /Start the WLASL service on port 8001/,
+  "Hosted backend errors must not tell production visitors to start a localhost port."
+);
 assert.match(translatorScript, /predictCadtCslWindows/, "CSL must average bounded shifted capture windows.");
 assert.doesNotMatch(translatorHtml, /value=["']short["']/, "The unreliable short CSL mode must not be offered.");
 assert.match(translatorScript, /interpolateCadtCslFrame/, "CSL capture must maintain a 30-sample-per-second landmark timeline.");

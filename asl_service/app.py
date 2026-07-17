@@ -18,6 +18,13 @@ configured_origins = [
     for origin in os.getenv("DEXTER_ALLOWED_ORIGINS", "").split(",")
     if origin.strip()
 ]
+max_concurrent_inferences = max(
+    1, int(os.getenv("WLASL_MAX_CONCURRENT_INFERENCES", "1"))
+)
+inference_queue_timeout = max(
+    1.0, float(os.getenv("WLASL_INFERENCE_QUEUE_TIMEOUT_SECONDS", "30"))
+)
+inference_semaphore = asyncio.Semaphore(max_concurrent_inferences)
 
 app = FastAPI(title="Dexter WLASL300 inference", version="0.3.0")
 app.add_middleware(
@@ -31,6 +38,15 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+async def service_info() -> dict:
+    return {
+        "service": "Dexter WLASL300 inference",
+        "health": "/health",
+        "predict": "/predict",
+    }
 
 
 @app.get("/health")
@@ -69,7 +85,19 @@ async def predict(video: UploadFile = File(...)) -> dict:
                         detail=f"Video exceeds the {MAX_UPLOAD_BYTES}-byte upload limit.",
                     )
                 temporary.write(chunk)
-        return await asyncio.to_thread(predict_video, temporary_path)
+        try:
+            await asyncio.wait_for(
+                inference_semaphore.acquire(), timeout=inference_queue_timeout
+            )
+        except asyncio.TimeoutError as error:
+            raise HTTPException(
+                status_code=429,
+                detail="ASL inference is busy. Please retry shortly.",
+            ) from error
+        try:
+            return await asyncio.to_thread(predict_video, temporary_path)
+        finally:
+            inference_semaphore.release()
     except FileNotFoundError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except (RuntimeError, ValueError) as error:

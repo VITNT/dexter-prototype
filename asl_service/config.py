@@ -4,18 +4,17 @@ from pathlib import Path
 SERVICE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = SERVICE_ROOT.parent
 RUNNING_ON_VERCEL = bool(os.getenv("VERCEL"))
-RUNTIME_ROOT = Path("/tmp/dexter-wlasl") if RUNNING_ON_VERCEL else PROJECT_ROOT
-OFFICIAL_I3D_ROOT = (
-    RUNTIME_ROOT / "third_party" / "WLASL" / "code" / "I3D"
+configured_runtime_root = os.getenv("WLASL_RUNTIME_ROOT", "").strip()
+RUNTIME_ROOT = (
+    Path(configured_runtime_root).expanduser()
+    if configured_runtime_root
+    else Path("/tmp/dexter-wlasl")
     if RUNNING_ON_VERCEL
-    else PROJECT_ROOT / "third_party" / "WLASL" / "code" / "I3D"
+    else PROJECT_ROOT
 )
+OFFICIAL_I3D_ROOT = RUNTIME_ROOT / "third_party" / "WLASL" / "code" / "I3D"
 CLASS_LIST_PATH = OFFICIAL_I3D_ROOT / "preprocess" / "wlasl_class_list.txt"
-CHECKPOINT_PATH = (
-    RUNTIME_ROOT / "asl_service" / "models" / "wlasl300.pt"
-    if RUNNING_ON_VERCEL
-    else SERVICE_ROOT / "models" / "wlasl300.pt"
-)
+CHECKPOINT_PATH = RUNTIME_ROOT / "asl_service" / "models" / "wlasl300.pt"
 
 NUM_CLASSES = 300
 FRAME_COUNT = 64

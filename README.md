@@ -1,11 +1,22 @@
+---
+title: Dexter WLASL300 API
+emoji: 🤟
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Dexter Sign Language Recognition
 
 For a one-link GitHub-to-Vercel deployment, follow
 [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md). For a fresh local clone, follow
 [SETUP.md](SETUP.md). VS Code **Go Live** alone is
 not enough for local ASL Words because WLASL300 needs Python and its checkpoint
-is excluded from Git. In production, the same service runs as a Vercel Python
-Function and reads the checkpoint from private Vercel Blob storage.
+is excluded from Git. In production, Vercel serves the frontend and small
+JavaScript routes while a Hugging Face Docker Space runs WLASL inference. The
+Space reads the restricted checkpoint from private Vercel Blob storage.
 
 CSL Words runs the released CADT 75-class temporal model directly in the
 browser. ASL Words is a separate WLASL/I3D integration and does not share the
@@ -28,11 +39,11 @@ that block PowerShell's `npx.ps1`, use `npx.cmd` as shown there.
 
 ## Deploy
 
-The complete application is configured for one Vercel domain. The restricted
-WLASL checkpoint and two official support files remain outside Git and are
-loaded by the Python Function from a private Vercel Blob store. Set
-`GEMINI_API_KEY`, enable Large Functions, upload the three private assets, and
-share the resulting Vercel URL. See [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md).
+The public application stays on one Vercel URL. Vercel exposes the Hugging Face
+backend URL through `/api/config`; the browser sends ASL clips directly to the
+Space. The restricted checkpoint and two official support files remain outside
+Git in a private Vercel Blob store. See
+[DEPLOY_VERCEL.md](DEPLOY_VERCEL.md).
 
 ## WLASL300 service
 
@@ -124,6 +135,7 @@ node src/pipeline/csl_cadt_model_asset.test.mjs
 node src/pipeline/csl_runtime_strategy.test.mjs
 node src/pipeline/csl_static_classifier.test.mjs
 node src/pipeline/prediction_rejection.test.mjs
+node src/pipeline/split_deployment_contract.test.mjs
 node src/pipeline/ui_contract.test.mjs
 node src/pipeline/wlasl_video_pipeline.test.mjs
 ```

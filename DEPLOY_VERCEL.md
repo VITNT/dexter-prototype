@@ -1,56 +1,45 @@
-# Deploy Dexter from GitHub to one Vercel URL
+# Deploy Dexter with Vercel and Hugging Face
 
-This is the production guide. Visitors only open the final Vercel URL and
-grant camera permission. They do not install Python, models, or dependencies.
-
-The deployment contains:
-
-- the static browser application;
-- ASL spelling and CSL/KSL recognition in the browser;
-- `/api/translate` for context translation;
-- `/api/asl/*` as a Vercel Python Function for ASL Words;
-- a private Vercel Blob store containing the three restricted WLASL files.
-
-## 1. Push the repository to GitHub
-
-Make sure the files listed in [SETUP.md](SETUP.md#files-that-must-stay-in-git)
-are committed and pushed. Do **not** commit `.env.local`, `wlasl300.pt`, or the
-downloaded `third_party/WLASL` repository.
-
-## 2. Import the GitHub repository
-
-1. Open <https://vercel.com/new>.
-2. Find the GitHub repository and select **Import**.
-3. Set **Framework Preset** to **Other**.
-4. Keep **Root Directory** as `./`.
-5. Leave Build Command, Output Directory, and Install Command at their
-   defaults. The repository's `vercel.json` is already configured.
-6. Before deploying, add these Environment Variables for Production, Preview,
-   and Development:
+This is the production deployment guide. The public site stays on one Vercel
+URL, while the memory-heavy WLASL300 service runs in a free Hugging Face Docker
+Space.
 
 ```text
-GEMINI_API_KEY=<your Google AI Studio key>
-GEMINI_MODEL=gemma-4-31b-it
-VERCEL_SUPPORT_LARGE_FUNCTIONS=1
+Vercel
+  static frontend
+  /api/config
+  /api/translate
+       |
+       | browser uploads a 2.5-second WebM clip
+       v
+Hugging Face Docker Space
+  FastAPI /health and /predict
+  PyTorch WLASL300 inference
+       |
+       | authenticated server-side download
+       v
+Private Vercel Blob
+  wlasl/wlasl300.pt
+  wlasl/pytorch_i3d.py
+  wlasl/wlasl_class_list.txt
 ```
 
-Do not add `WLASL_API_URL`. When it is absent, the browser automatically uses
-the same Vercel domain at `/api/asl`.
+Do not commit `.env.local`, `wlasl300.pt`, the downloaded WLASL repository, or
+the Blob token. WLASL is restricted to academic/computational, non-commercial
+use by its authors.
 
-7. Select **Deploy**.
+## 1. Push the application repository
 
-The first deployment can finish before the WLASL blobs are uploaded. ASL
-spelling and CSL/KSL should already work; ASL Words will report a missing model
-until the next section is complete.
+Push this repository to GitHub. The root `Dockerfile` is the Hugging Face
+backend image. `.dockerignore` deliberately excludes the local checkpoint and
+the downloaded `third_party/WLASL` tree from every Docker build context.
 
-## 3. Create private model storage
+## 2. Create private model storage
 
-1. Open the deployed project in the Vercel dashboard.
-2. Open **Storage**.
-3. Select **Create Database**, then **Blob**.
-4. Choose **Private** access and connect the store to this project. Vercel adds
-   the required `BLOB_READ_WRITE_TOKEN` automatically.
-5. Upload the following local files using these exact Blob pathnames:
+1. Create or open the frontend project in Vercel.
+2. Open **Storage**, create a **Blob** store with **Private** access, and connect
+   it to the project.
+3. Upload these files using the exact pathnames below.
 
 | Local file | Private Blob pathname |
 |---|---|
@@ -58,36 +47,74 @@ until the next section is complete.
 | `third_party/WLASL/code/I3D/pytorch_i3d.py` | `wlasl/pytorch_i3d.py` |
 | `third_party/WLASL/code/I3D/preprocess/wlasl_class_list.txt` | `wlasl/wlasl_class_list.txt` |
 
-If the dashboard does not offer file upload, install/login to the Vercel CLI,
-pull the project environment, and upload with private access:
+With the Vercel CLI, first link the project and pull its environment:
 
-```powershell
-npx.cmd vercel@latest login
-npx.cmd vercel@latest link
-npx.cmd vercel@latest env pull .env.local
-npx.cmd vercel@latest blob put asl_service/models/wlasl300.pt --pathname wlasl/wlasl300.pt --access private
-npx.cmd vercel@latest blob put third_party/WLASL/code/I3D/pytorch_i3d.py --pathname wlasl/pytorch_i3d.py --access private
-npx.cmd vercel@latest blob put third_party/WLASL/code/I3D/preprocess/wlasl_class_list.txt --pathname wlasl/wlasl_class_list.txt --access private
+```bash
+npx vercel@latest login
+npx vercel@latest link
+npx vercel@latest env pull .env.local
+npx vercel@latest blob put asl_service/models/wlasl300.pt --pathname wlasl/wlasl300.pt --access private
+npx vercel@latest blob put third_party/WLASL/code/I3D/pytorch_i3d.py --pathname wlasl/pytorch_i3d.py --access private
+npx vercel@latest blob put third_party/WLASL/code/I3D/preprocess/wlasl_class_list.txt --pathname wlasl/wlasl_class_list.txt --access private
 ```
 
-The exact Blob CLI flags can change; run
-`npx.cmd vercel@latest blob put --help` if `--pathname` is rejected.
+Copy the generated `BLOB_READ_WRITE_TOKEN` from the connected store. It will be
+added to Hugging Face as a secret in the next section. Never place it in a
+frontend variable or commit it.
 
-## 4. Redeploy and verify
+## 3. Create the Hugging Face Docker Space
 
-After connecting the Blob store, open **Deployments**, select the latest
-deployment's menu, and choose **Redeploy** so the Function receives the Blob
-credentials.
+1. In Hugging Face, create a new **Space**.
+2. Choose **Docker** as the SDK and **CPU Basic** as the hardware.
+3. Public visibility is sufficient for an academic demo. The source code and
+   API will be public, but the Blob token and checkpoint remain private.
+4. Upload this repository to the Space. The YAML block at the top of `README.md`
+   selects Docker and exposes port `7860`.
 
-Verify these URLs, replacing the domain:
+The Hugging Face CLI avoids Git-history conflicts with the Space's generated
+first commit and respects the repository's root `.gitignore`:
+
+```bash
+python -m pip install --upgrade huggingface_hub
+hf auth login
+hf upload YOUR_USERNAME/YOUR_SPACE . . --repo-type=space
+```
+
+In the Space **Settings**, add this secret:
 
 ```text
-https://your-project.vercel.app/
-https://your-project.vercel.app/api/config
-https://your-project.vercel.app/api/asl/health
+BLOB_READ_WRITE_TOKEN=<token copied from Vercel Blob>
 ```
 
-Expected health response:
+Add these public variables:
+
+```text
+DEXTER_ALLOWED_ORIGINS=https://YOUR_PROJECT.vercel.app
+WLASL_RUNTIME_ROOT=/tmp/dexter-wlasl
+WLASL_MAX_CONCURRENT_INFERENCES=1
+WLASL_INFERENCE_QUEUE_TIMEOUT_SECONDS=30
+```
+
+For Vercel preview deployments, optionally add a narrowly scoped regex:
+
+```text
+DEXTER_ALLOWED_ORIGIN_REGEX=^https://YOUR_PROJECT(-[a-zA-Z0-9-]+)?\.vercel\.app$
+```
+
+The Space downloads the three private assets on its first health request after
+a cold start. Free Space disk is ephemeral, so another download is expected
+after the Space sleeps or restarts. The application serializes inference to one
+request at a time to prevent concurrent PyTorch calls from exhausting memory.
+Requests that wait more than 30 seconds for that slot receive HTTP 429 instead
+of building an unbounded queue.
+
+Verify the Space directly:
+
+```text
+https://YOUR_USERNAME-YOUR_SPACE.hf.space/health
+```
+
+Expected response:
 
 ```json
 {
@@ -98,35 +125,61 @@ Expected health response:
 }
 ```
 
-The first ASL health check or prediction after a cold start downloads the
-50 MB checkpoint into the Function's temporary disk and loads PyTorch, so it
-can be noticeably slower than later requests. Vercel Hobby Functions have
-2 GB memory and one managed vCPU; monitor **Project**, **Observability**, then
-**Functions** for timeouts or memory failures.
+## 4. Deploy the frontend to Vercel
 
-## 5. Share one link
+Import the GitHub repository into Vercel with **Framework Preset: Other** and
+the repository root as the Root Directory. Keep the default build, install, and
+output settings.
 
-Share only:
+Add these Vercel environment variables to Production and Preview:
 
 ```text
-https://your-project.vercel.app/
+GEMINI_API_KEY=<your Google AI Studio key>
+GEMINI_MODEL=gemma-4-31b-it
+WLASL_API_URL=https://YOUR_USERNAME-YOUR_SPACE.hf.space
 ```
 
-GitHub pushes to the production branch trigger new production deployments.
-Other branches and pull requests receive Preview URLs. You can add a custom
-domain later under **Project**, **Settings**, then **Domains**.
+Do not add `BLOB_READ_WRITE_TOKEN` to browser-visible code. The Vercel frontend
+does not need it. `WLASL_API_URL` is public configuration and must not have a
+trailing slash.
+
+Deploy, then verify:
+
+```text
+https://YOUR_PROJECT.vercel.app/
+https://YOUR_PROJECT.vercel.app/api/config
+```
+
+`/api/config` must return the Space URL:
+
+```json
+{"wlaslApiUrl":"https://YOUR_USERNAME-YOUR_SPACE.hf.space"}
+```
+
+## 5. Production verification
+
+1. Open the Vercel URL over HTTPS and grant camera access.
+2. Select **ASL Words**.
+3. If the free Space was sleeping, allow it time to wake and select the mode
+   again if the first health request times out.
+4. Record one complete sign and confirm `/predict` returns a result.
+5. Confirm **Interpret Context** works through `/api/translate`.
 
 ## Troubleshooting
 
-- **Build exceeds the standard Function size:** confirm Fluid Compute is on
-  and `VERCEL_SUPPORT_LARGE_FUNCTIONS=1` is set, then redeploy.
-- **`/api/asl/health` says `missing_model`:** confirm all three private Blob
-  pathnames match exactly and the Blob store is connected to this project.
-- **ASL clip returns 413:** Vercel limits Function request bodies to 4.5 MB.
-  The app's normal 2.5-second WebM clips should remain below that limit; check
-  browser recording bitrate if they do not.
-- **Camera is blocked:** use the HTTPS Vercel URL and allow camera permission.
-- **Interpret Context fails:** verify `GEMINI_API_KEY`, then redeploy.
-- **Inference is too slow on Hobby:** this I3D model is CPU-heavy. At that
-  point, move only `/api/asl` to a GPU/container host and set `WLASL_API_URL`;
-  visitors still keep using the same frontend link.
+- **Space build cannot find WLASL files:** the Docker image intentionally does
+  not copy them. Confirm `BLOB_READ_WRITE_TOKEN` is a Space secret.
+- **`/health` returns `missing_model`:** confirm all three private Blob
+  pathnames exactly match the table and the token belongs to that store.
+- **Browser reports the backend is waking or unavailable:** open the Space
+  `/health` URL once, wait for it to become ready, then retry ASL Words.
+- **CORS error:** make `DEXTER_ALLOWED_ORIGINS` exactly match the Vercel origin,
+  without a trailing slash, then restart the Space.
+- **Prediction queues under multiple users:** this is intentional on free CPU
+  hardware. `WLASL_MAX_CONCURRENT_INFERENCES=1` prevents memory exhaustion.
+- **Clip upload returns 413:** keep each recorded clip below the host request
+  limit; the app itself defaults to 20 MB outside Vercel.
+- **Interpret Context fails:** verify the Vercel `GEMINI_API_KEY` and redeploy.
+
+The public link to share remains only the Vercel URL. Visitors do not need the
+Hugging Face or Blob credentials.
