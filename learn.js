@@ -12,14 +12,14 @@ async function loadVocabs() {
         const response = await fetch('./models/csl/static-landmark-v1.json');
         if (response.ok) {
             const model = await response.json();
-            cslVocab.push(...model.classes.map((form, index) => {
-                const hasReferenceImage = availableCslReferenceForms.has(form);
-                return {
+            cslVocab.push(...model.classes.flatMap((form, index) => {
+                if (!availableCslReferenceForms.has(form)) return [];
+                return [{
                     word: model.displayLabels[index] || form,
                     form,
-                    basePath: hasReferenceImage ? `images/csl/reference/${form}` : '',
-                    extensions: hasReferenceImage ? ['jpg'] : []
-                };
+                    basePath: `images/csl/reference/${form}`,
+                    extensions: ['jpg']
+                }];
             }));
         }
     } catch (error) {
@@ -78,6 +78,10 @@ function renderDictionary() {
         const word = entry.word;
         const cleanWord = word.trim().toLowerCase();
         if (['idle', 'none', '', 'still'].includes(cleanWord)) continue;
+        const isDynamicAsl = currentLang === 'asl' && ['j', 'z'].includes(cleanWord);
+        const extensions = entry.extensions || (isDynamicAsl ? ['gif', 'png', 'jpg'] : ['png', 'jpg', 'gif']);
+        const basePath = entry.basePath ?? `images/${currentLang}/${cleanWord}`;
+        if (!basePath || !extensions.length) continue;
 
         const card = document.createElement('div');
         card.className = 'dict-card';
@@ -97,18 +101,13 @@ function renderDictionary() {
                 <div class="dict-card-back">
                     <div class="dict-img-placeholder loading">
                         <img alt="${word} sign">
-                        <span>Reference image unavailable</span>
                     </div>
                     <div class="dict-label">${word}</div>
                 </div>
             </div>`;
         grid.appendChild(card);
 
-        const isDynamicAsl = currentLang === 'asl' && ['j', 'z'].includes(cleanWord);
-        const extensions = entry.extensions || (isDynamicAsl ? ['gif', 'png', 'jpg'] : ['png', 'jpg', 'gif']);
-        const basePath = entry.basePath ?? `images/${currentLang}/${cleanWord}`;
-        if (basePath && extensions.length) loadBestImage(card, basePath, extensions);
-        else card.querySelector('.dict-img-placeholder').classList.remove('loading');
+        loadBestImage(card, basePath, extensions);
     }
 }
 
@@ -125,8 +124,7 @@ function loadBestImage(card, basePath, extensions) {
 
     function tryNextExtension() {
         if (extensionIndex >= extensions.length) {
-            img.removeAttribute('src');
-            placeholder.classList.remove('loading');
+            card.remove();
             return;
         }
         img.src = `${basePath}.${extensions[extensionIndex++]}`;

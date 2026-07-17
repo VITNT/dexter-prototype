@@ -864,10 +864,6 @@ canvas {
     display: block;
 }
 
-.dict-img-placeholder img[src]+span {
-    display: none;
-}
-
 .dict-label {
     padding: 12px;
     text-align: center;
