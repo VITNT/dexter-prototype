@@ -35,6 +35,7 @@ for (const page of pages) {
 const translatorHtml = fs.readFileSync(new URL("../../index.html", import.meta.url), "utf8");
 const translatorScript = fs.readFileSync(new URL("../../script.js", import.meta.url), "utf8");
 const translatorStyles = fs.readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+const learnScript = fs.readFileSync(new URL("../../learn.js", import.meta.url), "utf8");
 
 assert.match(translatorHtml, /id=["']captureCountdown["']/, "Translator must expose the pre-capture countdown.");
 assert.doesNotMatch(translatorHtml, /id=["']cslStageSelect["']/, "CSL must use one fixed recognition pipeline without a stage selector.");
@@ -162,5 +163,12 @@ assert.match(translatorScript, /\{ speakable: hasBilingualTranslation \}/, "Only
 assert.match(translatorHtml, /onclick=["']backspaceWord\(\)["']/, "Translator must expose a backspace control.");
 assert.match(translatorScript, /window\.backspaceWord\s*=\s*function/, "Backspace control must have a callable handler.");
 assert.match(translatorScript, /sentenceBuilderDisplay\.lastChild\?\.remove\(\)/, "Backspace must remove the latest recognized item.");
+assert.match(
+  learnScript,
+  /if \(!availableCslReferenceForms\.has\(form\)\) return \[\];/,
+  "CSL Learn must omit model classes that have no approved reference image."
+);
+assert.match(learnScript, /card\.remove\(\)/, "Learn cards must disappear when every image candidate fails.");
+assert.doesNotMatch(learnScript, /Reference image unavailable/, "Learn must not display obsolete pictureless cards.");
 
 console.log("UI contracts passed: unique IDs, callable click handlers, and local scripts are present.");

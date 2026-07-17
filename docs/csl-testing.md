@@ -35,6 +35,7 @@ attempt.
 The five GIF references and chart are under `images/csl/`. Static reference
 photos are under `images/csl/reference/`. Only the approved `form_aa`,
 `form_ab`, `form_ac`, `form_u`, `form_v`, and `form_x` photos are included.
-Deleting an individual file is safe: its Learn card remains but displays
-“Reference image unavailable.” Tell Codex either the displayed Khmer word or
-the `form_*.jpg` filename to remove the file and update attribution records.
+Classes without an approved image are omitted from the Learn gallery. Deleting
+an individual reference file also removes its card when the page loads. Tell
+Codex either the displayed Khmer word or the `form_*.jpg` filename to remove
+the file and update attribution records.
