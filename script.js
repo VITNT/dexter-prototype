@@ -122,7 +122,7 @@ const REQUIRED_FRAMES = LEGACY_REQUIRED_FRAMES;
 const CONFIDENCE_THRESHOLD = 0.90;
 const KSL_STATIC_CONFIDENCE_THRESHOLD = 0.75;
 const WLASL_API_URL = 'http://127.0.0.1:8001';
-// Collect a complete sign window; OpenHands ST-GCN accepts variable frame counts.
+// Collect a complete sign window; the backend samples fixed 50-frame TGCN views.
 const WLASL_CLIP_WINDOW_MS = 2500;
 const WLASL_BACKEND_CONFIDENCE = 0.55;
 const MIN_CAPTURE_HAND_CONFIDENCE = 0.65;
@@ -430,7 +430,7 @@ async function checkWlaslBackend() {
         const response = await fetch(`${WLASL_API_URL}/health`);
         const status = response.ok ? await response.json() : null;
         wlaslBackendReady = status?.status === 'ready'
-            && status?.model === 'OpenHands ST-GCN'
+            && status?.model === 'TGCN WLASL2000'
             && status?.classes === 2000;
     } catch (error) {
         wlaslBackendReady = false;
@@ -546,8 +546,8 @@ window.selectMode = async function (modeId, modeLabel, element) {
         await checkWlaslBackend();
         guessLabelUI.innerText = `Mode: ${modeLabel}`;
         rawOutputUI.innerText = (wlaslBackendReady || aslWordModel)
-            ? `[ASL OpenHands ST-GCN WLASL2000]`
-            : "Start the OpenHands service on port 8001";
+            ? `[ASL TGCN WLASL2000]`
+            : "Start the TGCN service on port 8001";
         if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
@@ -618,8 +618,8 @@ window.changeMode = async function () {
         guessLabelDisplay.innerText = "Mode: ASL Words";
         await checkWlaslBackend();
         rawExtractionDisplay.innerText = (wlaslBackendReady || aslWordModel)
-            ? "[ASL OpenHands ST-GCN WLASL2000]"
-            : "Start the OpenHands service on port 8001";
+            ? "[ASL TGCN WLASL2000]"
+            : "Start the TGCN service on port 8001";
         if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
@@ -869,8 +869,8 @@ async function submitWlaslClip(clip, generation, landmarkFrames) {
         }
     } catch (error) {
         console.error("WLASL prediction failed:", error);
-        rawExtractionDisplay.innerText = "OpenHands service unavailable";
-        setCaptureGuide("waiting", "Recognition unavailable", "Check the OpenHands service, then try again.", 0);
+        rawExtractionDisplay.innerText = "TGCN service unavailable";
+        setCaptureGuide("waiting", "Recognition unavailable", "Check the TGCN service, then try again.", 0);
     } finally {
         wlaslRequestInFlight = false;
         const pending = wlaslPendingClip;
@@ -1718,7 +1718,7 @@ async function processVideoFrames() {
         latestHandsVisible = Boolean(detectedHands.landmarks?.length);
 
         if (currentTrackingMode === "asl_word" && wlaslBackendReady) {
-            // OpenHands ST-GCN consumes the pose + left/right hand landmarks
+            // TGCN consumes the pose + left/right hand landmarks
             // already produced for the UI. Keep the recorder only as the
             // gap-free 2.5-second window clock.
             syncCameraCaptureAppearance();
@@ -2080,7 +2080,7 @@ function inferDynamicGesture() {
             return;
         }
         if (currentTrackingMode === "asl_word" && !aslWordModel && !wlaslBackendReady) {
-            rawExtractionDisplay.innerText = "Start the OpenHands service on port 8001";
+            rawExtractionDisplay.innerText = "Start the TGCN service on port 8001";
         }
         showDynamicIdle(0, true);
         return;

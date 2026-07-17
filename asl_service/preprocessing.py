@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 # Retained only for the historical I3D preprocessing tests. The live service
-# now imports ``stgcn_preprocessing`` instead of this module.
+# now imports ``tgcn_preprocessing`` instead of this module.
 FRAME_COUNT = 64
 IMAGE_SIZE = 224
 RESIZE_SIZE = 256

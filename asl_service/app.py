@@ -8,14 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import (
     CHECKPOINT_PATH,
     INPUT_FEATURE_COUNT,
-    MODEL_COORDINATE_COUNT,
+    MODEL_FEATURE_COUNT,
     MODEL_LANDMARK_COUNT,
     MODEL_NAME,
     NUM_CLASSES,
 )
 from .inference import load_labels, load_model, predict_landmarks
 
-app = FastAPI(title="Dexter OpenHands ST-GCN WLASL2000 inference", version="1.0.0")
+app = FastAPI(title="Dexter TGCN WLASL2000 inference", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[],
@@ -50,7 +50,7 @@ def health() -> dict:
         "labelsFound": labels_ready,
         "classes": NUM_CLASSES,
         "inputShape": ["frames", INPUT_FEATURE_COUNT],
-        "modelInputShape": [MODEL_COORDINATE_COUNT, "frames", MODEL_LANDMARK_COUNT],
+        "modelInputShape": [MODEL_LANDMARK_COUNT, MODEL_FEATURE_COUNT],
         "error": model_error,
     }
 

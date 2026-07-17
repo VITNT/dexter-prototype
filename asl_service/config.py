@@ -2,15 +2,20 @@ from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parent
 CLASS_LIST_PATH = SERVICE_ROOT / "models" / "wlasl2000_labels.txt"
-CHECKPOINT_PATH = SERVICE_ROOT / "models" / "openhands_wlasl2000_stgcn.ckpt"
+CHECKPOINT_PATH = SERVICE_ROOT / "models" / "tgcn_wlasl2000.bin"
 
-MODEL_NAME = "OpenHands ST-GCN"
+MODEL_NAME = "TGCN WLASL2000"
 NUM_CLASSES = 2000
 INPUT_LANDMARK_COUNT = 75
 INPUT_COORDINATE_COUNT = 3
 INPUT_FEATURE_COUNT = INPUT_LANDMARK_COUNT * INPUT_COORDINATE_COUNT
-MODEL_LANDMARK_COUNT = 27
+MODEL_FRAME_COUNT = 50
+MODEL_LANDMARK_COUNT = 55
 MODEL_COORDINATE_COUNT = 2
+MODEL_FEATURE_COUNT = MODEL_FRAME_COUNT * MODEL_COORDINATE_COUNT
+MODEL_HIDDEN_SIZE = 256
+MODEL_STAGE_COUNT = 24
+MODEL_DROPOUT = 0.3
 
 # WLASL2000 has no idle/no-sign class. These gates prevent the closed-set model
 # from turning an empty or ambiguous landmark window into an arbitrary word.

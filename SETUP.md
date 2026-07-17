@@ -21,7 +21,7 @@ VS Code Live Server can be used instead of `python -m http.server 8000`.
 
 ## Optional: ASL Words
 
-ASL Words uses the local OpenHands ST-GCN WLASL2000 service and requires its
+ASL Words uses the local TGCN WLASL2000 service and requires its
 Python dependencies plus Git LFS for the included checkpoint.
 
 ### 1. Install the service
@@ -34,7 +34,7 @@ python -m venv .venv
 The model consumes the pose and hand landmarks already extracted in the
 browser; the official WLASL I3D source is not required.
 
-### 2. Download the OpenHands checkpoint
+### 2. Download the TGCN checkpoint
 
 Install Git LFS before cloning or pulling the repository:
 
@@ -44,7 +44,7 @@ git lfs pull
 ```
 
 The checkpoint should be present at
-`asl_service/models/openhands_wlasl2000_stgcn.ckpt` and approximately 41 MiB.
+`asl_service/models/tgcn_wlasl2000.bin` and approximately 25 MiB.
 See `asl_service/models/README.md` for its exact size and SHA-256 checksum.
 
 ### 3. Start the ASL service
@@ -62,7 +62,7 @@ Confirm <http://127.0.0.1:8001/health> reports `"status":"ready"`, then select
 
 - `No module named uvicorn`: use `.\.venv\Scripts\python.exe`, not system Python.
 - `missing_model`: confirm
-  `asl_service/models/openhands_wlasl2000_stgcn.ckpt` is a full Git LFS file,
+  `asl_service/models/tgcn_wlasl2000.bin` is a full Git LFS file,
   not a small pointer.
 - Camera unavailable: allow camera permission and open the site through
   `localhost`, not directly as a local file.

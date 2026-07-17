@@ -30,14 +30,14 @@ Then open:
 - `http://localhost:8000/recorder.html` for the dataset recorder prototype
 - `http://localhost:8000/trainer.html` for the browser trainer prototype
 
-## OpenHands ST-GCN WLASL2000 service
+## TGCN WLASL2000 service
 
-The isolated ASL-word backend lives in `asl_service/` and uses the released
-pose-based ST-GCN checkpoint from
-<https://github.com/AI4Bharat/OpenHands>. The browser sends the MediaPipe pose
-and hand landmarks it already tracks, so no RGB I3D model or second server-side
-landmark detector is required. The checkpoint is stored with Git LFS; its
-verified artifact details are in `asl_service/models/README.md`.
+The isolated ASL-word backend lives in `asl_service/` and uses the pretrained
+`asl2000` TGCN checkpoint from
+<https://huggingface.co/sharonn18/tgcn-wlasl>. The browser sends the MediaPipe
+pose and hand landmarks it already tracks, so no RGB I3D model or second
+server-side landmark detector is required. The checkpoint is stored with Git
+LFS; its verified artifact details are in `asl_service/models/README.md`.
 
 After installing the checkpoint and Python requirements, run:
 
@@ -47,9 +47,10 @@ After installing the checkpoint and Python requirements, run:
 
 Check `http://127.0.0.1:8001/health`. It should report `"status":"ready"`.
 The live ASL-word client uses a rolling 2.5-second sign window. Each window is
-reduced from 75 holistic landmarks to the OpenHands 27-point preset, converted
-to x/y coordinates, and normalized at clip level by shoulder midpoint and mean
-shoulder width. ST-GCN accepts the captured window's variable frame count.
+mapped from 75 MediaPipe holistic landmarks to the TGCN model's 55 OpenPose
+nodes, converted to normalized x/y coordinates, and sampled into fixed 50-frame
+views. Longer windows use the original four-view WLASL test strategy and have
+their logits averaged.
 Because WLASL has no idle class, motion, confidence, and top-two-margin gates
 reject no-sign windows instead of forcing an arbitrary vocabulary word.
 Pausing or resuming the camera clears all cached recognition frames.

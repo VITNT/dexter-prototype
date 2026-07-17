@@ -1,27 +1,25 @@
 # Third-party notices
 
-## AI4Bharat OpenHands ST-GCN
+## TGCN WLASL2000
 
-The ST-GCN architecture in `asl_service/openhands_stgcn.py` and its WLASL
-preprocessing contract are adapted from:
+The TGCN architecture in `asl_service/tgcn_model.py` and its WLASL
+preprocessing contract are adapted from the original WLASL TGCN source:
 
-<https://github.com/AI4Bharat/OpenHands>
+<https://github.com/dxli94/WLASL/tree/master/code/TGCN>
 
-Audited against commit `b9ccf9eaf2a71301fc4601a64a6af06fdef04c9b`.
-The included `openhands_wlasl2000_stgcn.ckpt` is the pretrained WLASL ST-GCN
-artifact distributed in the project's checkpoint release bundle.
+The included `tgcn_wlasl2000.bin` checkpoint and configuration are from:
 
-Copyright 2021 - The AI4Bhārat team. All rights reserved.
+<https://huggingface.co/sharonn18/tgcn-wlasl>
 
-Licensed under the Apache License, Version 2.0. The complete upstream license
-is included at `asl_service/OPENHANDS_LICENSE.txt`.
+Pinned Hugging Face revision: `dacb4568719caa03c44764034f599a9f8a0f63f4`.
+The Hugging Face repository declares the MIT license.
 
 WLASL dataset metadata used to construct the 2,000-label order comes from:
 
 <https://github.com/dxli94/WLASL>
 
 WLASL dataset access and usage terms remain applicable independently of the
-OpenHands software license.
+model repository's software license.
 
 ## Khmer Sign Language Translation System
 
