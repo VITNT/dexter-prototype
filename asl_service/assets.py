@@ -24,15 +24,20 @@ async def _download_private_blob(pathname: str, target: Path) -> None:
 
     client = AsyncBlobClient()
     result = await client.get(pathname, access="private")
-    if result is None or result.status_code != 200 or result.stream is None:
+    content = getattr(result, "content", None) if result is not None else None
+    stream = getattr(result, "stream", None) if result is not None else None
+    if result is None or result.status_code != 200 or (content is None and stream is None):
         raise FileNotFoundError(f"Private Vercel Blob asset was not found: {pathname}")
 
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary_target = target.with_suffix(target.suffix + ".part")
     try:
         with temporary_target.open("wb") as output:
-            async for chunk in result.stream:
-                output.write(chunk)
+            if content is not None:
+                output.write(content)
+            else:
+                async for chunk in stream:
+                    output.write(chunk)
         os.replace(temporary_target, target)
     finally:
         temporary_target.unlink(missing_ok=True)
@@ -41,9 +46,10 @@ async def _download_private_blob(pathname: str, target: Path) -> None:
 async def ensure_wlasl_assets() -> None:
     if required_assets_ready():
         return
-    if not os.getenv("VERCEL"):
+    if not os.getenv("BLOB_READ_WRITE_TOKEN"):
         raise FileNotFoundError(
-            "WLASL assets are missing. Follow asl_service/models/README.md."
+            "WLASL assets are missing and private Blob access is not configured. "
+            "Follow asl_service/models/README.md."
         )
 
     async with _asset_lock:

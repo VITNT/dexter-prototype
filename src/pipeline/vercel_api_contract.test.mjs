@@ -35,7 +35,7 @@ assert.equal(configResponse.headers["Cache-Control"], "no-store");
 delete process.env.WLASL_API_URL;
 const defaultConfigResponse = mockResponse();
 configHandler({ method: "GET" }, defaultConfigResponse);
-assert.equal(defaultConfigResponse.payload.wlaslApiUrl, "/api/asl");
+assert.equal(defaultConfigResponse.payload.wlaslApiUrl, "");
 
 const previousGeminiKey = process.env.GEMINI_API_KEY;
 delete process.env.GEMINI_API_KEY;

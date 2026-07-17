@@ -37,3 +37,4 @@ temp/
 
 # Keep the browser runtime assets in Git. In particular, do not ignore:
 # asl-model.weights.bin, models/csl/**, images/**, api/**, src/pipeline/**.
+.vercel

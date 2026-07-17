@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!asl_service/
+!asl_service/**
+
+asl_service/tests/
+asl_service/**/__pycache__/
+asl_service/**/*.pyc
+asl_service/models/*.pt

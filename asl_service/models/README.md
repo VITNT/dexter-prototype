@@ -16,3 +16,7 @@
 The final path must be `asl_service/models/wlasl300.pt`. Do not commit this
 large checkpoint to Git.
 
+For hosted inference, upload this checkpoint and the two official support files
+to private Vercel Blob using the pathnames in `DEPLOY_VERCEL.md`. The Docker
+image never copies these restricted files from the local build context; it
+downloads them at runtime with `BLOB_READ_WRITE_TOKEN`.

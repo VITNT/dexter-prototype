@@ -499,7 +499,7 @@ window.selectMode = async function (modeId, modeLabel, element) {
         guessLabelUI.innerText = `Mode: ${modeLabel}`;
         rawOutputUI.innerText = (wlaslBackendReady || aslWordModel)
             ? `[ASL WLASL300]`
-            : "Start the WLASL service on port 8001";
+            : "ASL Words backend is waking or unavailable";
         if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
@@ -571,7 +571,7 @@ window.changeMode = async function () {
         await checkWlaslBackend();
         rawExtractionDisplay.innerText = (wlaslBackendReady || aslWordModel)
             ? "[ASL WLASL300]"
-            : "Start the WLASL service on port 8001";
+            : "ASL Words backend is waking or unavailable";
         if (outputLangUI) outputLangUI.innerText = "English";
         activeAIModel = aslWordModel;
         activeVocabulary = aslWordVocab;
@@ -1895,7 +1895,7 @@ function inferDynamicGesture() {
             return;
         }
         if (currentTrackingMode === "asl_word" && !aslWordModel && !wlaslBackendReady) {
-            rawExtractionDisplay.innerText = "Start the WLASL service on port 8001";
+            rawExtractionDisplay.innerText = "ASL Words backend is waking or unavailable";
         }
         showDynamicIdle(0, true);
         return;
