@@ -431,6 +431,30 @@ canvas {
     font-weight: 500;
 }
 
+.bilingual-translation {
+    display: grid;
+    gap: 10px;
+}
+
+.bilingual-translation[hidden] {
+    display: none;
+}
+
+.translation-row {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 12px;
+    align-items: baseline;
+}
+
+.translation-language {
+    color: #5f6368;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
 /* Navigation Menu */
 .dex-nav {
     display: flex;
@@ -960,6 +984,10 @@ body.dark-mode #builtSentence {
 
 body.dark-mode #translatedResult {
     color: #81c995;
+}
+
+body.dark-mode .translation-language {
+    color: #9aa0a6;
 }
 
 body.dark-mode .dex-nav-item {

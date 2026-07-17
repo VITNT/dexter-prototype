@@ -33,7 +33,7 @@ assert.match(dockerfile, /--port \$\{PORT:-7860\}/);
 assert.doesNotMatch(
   dockerfile,
   /COPY\s+third_party|COPY\s+.*wlasl300\.pt/,
-  "Restricted WLASL assets must never be copied into the public Space image."
+  "Restricted WLASL assets must never be copied into the Cloud Run image."
 );
 assert.doesNotMatch(
   dockerignore,
@@ -48,4 +48,4 @@ assert.match(backendApp, /asyncio\.Semaphore/);
 assert.match(backendApp, /inference_semaphore\.acquire/);
 assert.match(backendApp, /status_code=429/);
 
-console.log("Split deployment contract passed: Vercel frontend, Hugging Face backend, private Blob assets.");
+console.log("Split deployment contract passed: Vercel frontend, Cloud Run backend, private Blob assets.");

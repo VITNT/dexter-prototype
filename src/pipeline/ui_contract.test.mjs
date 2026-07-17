@@ -153,8 +153,12 @@ assert.match(
   "Camera dimming must update immediately after each hand-presence check."
 );
 assert.match(translatorHtml, /id=["']speakTranslationBtn["']/, "Translator must expose a final-translation speech control.");
-assert.match(translatorScript, /new SpeechSynthesisUtterance\(speakableTranslation\)/, "Speech must use the final interpreted text.");
-assert.match(translatorScript, /setFinalTranslation\(translation[^;]+speakable:/, "Only a successful interpretation may enable speech.");
+assert.match(translatorHtml, /id=["']khmerTranslation["'][^>]+lang=["']km["']/, "Final translation must expose a Khmer result.");
+assert.match(translatorHtml, /id=["']englishTranslation["'][^>]+lang=["']en["']/, "Final translation must expose an English result.");
+assert.match(translatorScript, /new SpeechSynthesisUtterance\(speechItem\.text\)/, "Speech must use each final interpreted text.");
+assert.match(translatorScript, /lang:\s*["']km-KH["']/, "Khmer speech must use the Khmer locale.");
+assert.match(translatorScript, /lang:\s*["']en-US["']/, "English speech must use the English locale.");
+assert.match(translatorScript, /\{ speakable: hasBilingualTranslation \}/, "Only a complete bilingual interpretation may enable speech.");
 assert.match(translatorHtml, /onclick=["']backspaceWord\(\)["']/, "Translator must expose a backspace control.");
 assert.match(translatorScript, /window\.backspaceWord\s*=\s*function/, "Backspace control must have a callable handler.");
 assert.match(translatorScript, /sentenceBuilderDisplay\.lastChild\?\.remove\(\)/, "Backspace must remove the latest recognized item.");

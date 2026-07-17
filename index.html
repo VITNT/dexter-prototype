@@ -122,7 +122,7 @@
 
       <div class="dex-box output-box">
         <div class="dex-box-header">
-          <div class="dex-lang-tab active" id="outputLangLabel">English</div>
+          <div class="dex-lang-tab active" id="outputLangLabel">Khmer + English</div>
           <div class="output-header-actions">
             <button class="dex-icon-btn backspace-btn" onclick="backspaceWord()" title="Remove latest letter or word"
               aria-label="Remove latest letter or word">
@@ -147,7 +147,19 @@
             <div id="liveOutput" class="live-translation">...</div>
             <div class="word-panel">
               <div id="builtSentence" class="extracted-word"></div>
-              <div id="translatedResult" class="final-translation"></div>
+              <div id="translatedResult" class="final-translation" aria-live="polite">
+                <div id="translationStatus"></div>
+                <div id="bilingualTranslation" class="bilingual-translation" hidden>
+                  <div class="translation-row">
+                    <span class="translation-language">Khmer</span>
+                    <span id="khmerTranslation" lang="km"></span>
+                  </div>
+                  <div class="translation-row">
+                    <span class="translation-language">English</span>
+                    <span id="englishTranslation" lang="en"></span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

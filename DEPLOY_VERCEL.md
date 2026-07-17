@@ -1,8 +1,8 @@
-# Deploy Dexter with Vercel and Hugging Face
+# Deploy Dexter with Vercel and Google Cloud Run
 
-This is the production deployment guide. The public site stays on one Vercel
-URL, while the memory-heavy WLASL300 service runs in a free Hugging Face Docker
-Space.
+The public site and lightweight JavaScript routes run on Vercel. The
+memory-heavy WLASL300 FastAPI/PyTorch service runs on Google Cloud Run, and its
+restricted assets remain in private Vercel Blob storage.
 
 ```text
 Vercel
@@ -12,11 +12,11 @@ Vercel
        |
        | browser uploads a 2.5-second WebM clip
        v
-Hugging Face Docker Space
+Google Cloud Run
   FastAPI /health and /predict
   PyTorch WLASL300 inference
        |
-       | authenticated server-side download
+       | token from Google Secret Manager
        v
 Private Vercel Blob
   wlasl/wlasl300.pt
@@ -24,22 +24,19 @@ Private Vercel Blob
   wlasl/wlasl_class_list.txt
 ```
 
+Cloud Run requires a billing account even when usage stays within its free
+allowance. The allowance is not a hard spending cap, so configure a Google
+Cloud budget alert. This service limits itself to one instance and scales to
+zero when idle to keep demo usage small.
+
 Do not commit `.env.local`, `wlasl300.pt`, the downloaded WLASL repository, or
-the Blob token. WLASL is restricted to academic/computational, non-commercial
-use by its authors.
+the Blob token. WLASL is restricted to academic/computational,
+non-commercial use by its authors.
 
-## 1. Push the application repository
+## 1. Store the restricted files privately
 
-Push this repository to GitHub. The root `Dockerfile` is the Hugging Face
-backend image. `.dockerignore` deliberately excludes the local checkpoint and
-the downloaded `third_party/WLASL` tree from every Docker build context.
-
-## 2. Create private model storage
-
-1. Create or open the frontend project in Vercel.
-2. Open **Storage**, create a **Blob** store with **Private** access, and connect
-   it to the project.
-3. Upload these files using the exact pathnames below.
+Create a private Vercel Blob store, connect it to the Vercel project, and upload
+these exact pathnames:
 
 | Local file | Private Blob pathname |
 |---|---|
@@ -47,7 +44,7 @@ the downloaded `third_party/WLASL` tree from every Docker build context.
 | `third_party/WLASL/code/I3D/pytorch_i3d.py` | `wlasl/pytorch_i3d.py` |
 | `third_party/WLASL/code/I3D/preprocess/wlasl_class_list.txt` | `wlasl/wlasl_class_list.txt` |
 
-With the Vercel CLI, first link the project and pull its environment:
+The Vercel CLI can upload them after the project is linked:
 
 ```bash
 npx vercel@latest login
@@ -58,128 +55,139 @@ npx vercel@latest blob put third_party/WLASL/code/I3D/pytorch_i3d.py --pathname 
 npx vercel@latest blob put third_party/WLASL/code/I3D/preprocess/wlasl_class_list.txt --pathname wlasl/wlasl_class_list.txt --access private
 ```
 
-Copy the generated `BLOB_READ_WRITE_TOKEN` from the connected store. It will be
-added to Hugging Face as a secret in the next section. Never place it in a
-frontend variable or commit it.
+Keep the generated `BLOB_READ_WRITE_TOKEN` private. It is needed by Cloud Run,
+not by browser code.
 
-## 3. Create the Hugging Face Docker Space
+## 2. Put the Blob credential in Google Secret Manager
 
-1. In Hugging Face, create a new **Space**.
-2. Choose **Docker** as the SDK and **CPU Basic** as the hardware.
-3. Public visibility is sufficient for an academic demo. The source code and
-   API will be public, but the Blob token and checkpoint remain private.
-4. Upload this repository to the Space. The YAML block at the top of `README.md`
-   selects Docker and exposes port `7860`.
-
-The Hugging Face CLI avoids Git-history conflicts with the Space's generated
-first commit and respects the repository's root `.gitignore`:
+Select a Google Cloud project with billing enabled, then enable the required
+APIs:
 
 ```bash
-python -m pip install --upgrade huggingface_hub
-hf auth login
-hf upload YOUR_USERNAME/YOUR_SPACE . . --repo-type=space
+gcloud config set project YOUR_PROJECT_ID
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
+gcloud secrets create dexter-vercel-blob-token --replication-policy=automatic
+gcloud secrets versions add dexter-vercel-blob-token --data-file=-
 ```
 
-In the Space **Settings**, add this secret:
+The last command reads the token from standard input. Paste only the token and
+finish the input; do not put it in shell history.
 
-```text
-BLOB_READ_WRITE_TOKEN=<token copied from Vercel Blob>
+Create a dedicated runtime identity and grant it access only to that secret:
+
+```bash
+gcloud iam service-accounts create dexter-wlasl-runtime --display-name="Dexter WLASL runtime"
+gcloud secrets add-iam-policy-binding dexter-vercel-blob-token \
+  --member="serviceAccount:dexter-wlasl-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
 ```
 
-Add these public variables:
+## 3. Deploy the WLASL backend to Cloud Run
 
-```text
-DEXTER_ALLOWED_ORIGINS=https://YOUR_PROJECT.vercel.app
-WLASL_RUNTIME_ROOT=/tmp/dexter-wlasl
-WLASL_MAX_CONCURRENT_INFERENCES=1
-WLASL_INFERENCE_QUEUE_TIMEOUT_SECONDS=30
+The root `Dockerfile` builds the backend. `.dockerignore` and `.gcloudignore`
+exclude the checkpoint, downloaded WLASL repository, frontend, tests, and local
+secrets from the image and Cloud Build upload.
+
+```bash
+gcloud run deploy dexter-wlasl \
+  --source . \
+  --region asia-southeast1 \
+  --allow-unauthenticated \
+  --service-account dexter-wlasl-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+  --set-secrets BLOB_READ_WRITE_TOKEN=dexter-vercel-blob-token:latest \
+  --set-env-vars DEXTER_ALLOWED_ORIGINS=https://YOUR_PROJECT.vercel.app,WLASL_RUNTIME_ROOT=/tmp/dexter-wlasl,WLASL_MAX_CONCURRENT_INFERENCES=1,WLASL_INFERENCE_QUEUE_TIMEOUT_SECONDS=30,MAX_UPLOAD_BYTES=20971520 \
+  --memory 4Gi \
+  --cpu 1 \
+  --concurrency 1 \
+  --min-instances 0 \
+  --max-instances 1 \
+  --timeout 300 \
+  --execution-environment gen2 \
+  --cpu-boost
 ```
 
-For Vercel preview deployments, optionally add a narrowly scoped regex:
+For Vercel preview deployments, optionally add a narrowly scoped CORS regex:
 
-```text
-DEXTER_ALLOWED_ORIGIN_REGEX=^https://YOUR_PROJECT(-[a-zA-Z0-9-]+)?\.vercel\.app$
+```bash
+gcloud run services update dexter-wlasl \
+  --region asia-southeast1 \
+  --update-env-vars 'DEXTER_ALLOWED_ORIGIN_REGEX=^https://YOUR_PROJECT(-[a-zA-Z0-9-]+)?-YOUR_TEAM\.vercel\.app$'
 ```
 
-The Space downloads the three private assets on its first health request after
-a cold start. Free Space disk is ephemeral, so another download is expected
-after the Space sleeps or restarts. The application serializes inference to one
-request at a time to prevent concurrent PyTorch calls from exhausting memory.
-Requests that wait more than 30 seconds for that slot receive HTTP 429 instead
-of building an unbounded queue.
+On a cold start, the service downloads the three private assets to ephemeral
+`/tmp` storage and loads the model. Inference is serialized to one request at a
+time to protect the 4 GiB instance. Requests waiting longer than 30 seconds
+receive HTTP 429 rather than forming an unbounded queue.
 
-Verify the Space directly:
+Verify the service URL reported by `gcloud run deploy`:
 
-```text
-https://YOUR_USERNAME-YOUR_SPACE.hf.space/health
+```bash
+curl https://YOUR_CLOUD_RUN_URL/health
 ```
 
-Expected response:
+The response should report `"status":"ready"`, both assets as found, and
+`"classes":300`.
 
-```json
-{
-  "status": "ready",
-  "checkpointFound": true,
-  "labelsFound": true,
-  "classes": 300
-}
-```
+## 4. Connect and deploy Vercel
 
-## 4. Deploy the frontend to Vercel
-
-Import the GitHub repository into Vercel with **Framework Preset: Other** and
-the repository root as the Root Directory. Keep the default build, install, and
-output settings.
-
-Add these Vercel environment variables to Production and Preview:
+Use **Framework Preset: Other** and the repository root as Vercel's Root
+Directory. Set these variables for Production and Preview:
 
 ```text
 GEMINI_API_KEY=<your Google AI Studio key>
 GEMINI_MODEL=gemma-4-31b-it
-WLASL_API_URL=https://YOUR_USERNAME-YOUR_SPACE.hf.space
+WLASL_API_URL=https://YOUR_CLOUD_RUN_URL
 ```
 
-Do not add `BLOB_READ_WRITE_TOKEN` to browser-visible code. The Vercel frontend
-does not need it. `WLASL_API_URL` is public configuration and must not have a
-trailing slash.
+`WLASL_API_URL` is public configuration and must not have a trailing slash.
+Do not add `BLOB_READ_WRITE_TOKEN` to browser-visible code or Vercel; only the
+Cloud Run runtime needs it.
 
-Deploy, then verify:
+Deploy and verify:
 
-```text
-https://YOUR_PROJECT.vercel.app/
-https://YOUR_PROJECT.vercel.app/api/config
+```bash
+npx vercel@latest deploy --prod
+curl https://YOUR_PROJECT.vercel.app/api/config
 ```
 
-`/api/config` must return the Space URL:
+`/api/config` must return the Cloud Run URL:
 
 ```json
-{"wlaslApiUrl":"https://YOUR_USERNAME-YOUR_SPACE.hf.space"}
+{"wlaslApiUrl":"https://YOUR_CLOUD_RUN_URL"}
 ```
 
 ## 5. Production verification
 
 1. Open the Vercel URL over HTTPS and grant camera access.
-2. Select **ASL Words**.
-3. If the free Space was sleeping, allow it time to wake and select the mode
-   again if the first health request times out.
-4. Record one complete sign and confirm `/predict` returns a result.
-5. Confirm **Interpret Context** works through `/api/translate`.
+2. Select **ASL Words** and allow extra time for the first Cloud Run cold start.
+3. Record one complete sign and confirm `/predict` returns a result.
+4. Confirm **Interpret Context** works through `/api/translate`.
+5. Create a Google Cloud budget alert and review Cloud Run usage periodically.
+
+## Current Dexter deployment
+
+- Frontend: `https://dexter-translate.vercel.app`
+- WLASL backend: `https://dexter-wlasl-735462023324.asia-southeast1.run.app`
+- Health: `https://dexter-wlasl-735462023324.asia-southeast1.run.app/health`
 
 ## Troubleshooting
 
-- **Space build cannot find WLASL files:** the Docker image intentionally does
-  not copy them. Confirm `BLOB_READ_WRITE_TOKEN` is a Space secret.
 - **`/health` returns `missing_model`:** confirm all three private Blob
-  pathnames exactly match the table and the token belongs to that store.
-- **Browser reports the backend is waking or unavailable:** open the Space
-  `/health` URL once, wait for it to become ready, then retry ASL Words.
+  pathnames exactly match the table and that the Secret Manager token belongs
+  to that store.
+- **Cloud Run cannot read the secret:** confirm the runtime service account has
+  `roles/secretmanager.secretAccessor` on `dexter-vercel-blob-token`.
+- **First request is slow:** a scale-from-zero instance must download the
+  private assets and load PyTorch before it can become ready.
 - **CORS error:** make `DEXTER_ALLOWED_ORIGINS` exactly match the Vercel origin,
-  without a trailing slash, then restart the Space.
-- **Prediction queues under multiple users:** this is intentional on free CPU
-  hardware. `WLASL_MAX_CONCURRENT_INFERENCES=1` prevents memory exhaustion.
-- **Clip upload returns 413:** keep each recorded clip below the host request
-  limit; the app itself defaults to 20 MB outside Vercel.
+  without a trailing slash, then deploy a new Cloud Run revision.
+- **Prediction queues under multiple users:** this is intentional on the
+  low-cost CPU configuration. Concurrency and maximum instances are capped.
+- **Clip upload returns 413:** keep each recorded clip below 20 MB.
 - **Interpret Context fails:** verify the Vercel `GEMINI_API_KEY` and redeploy.
+- **Vercel blocks a private-repository deployment:** ensure the Git commit
+  author has contributing access to the Vercel project, or deploy a clean local
+  source archive without Git metadata.
 
-The public link to share remains only the Vercel URL. Visitors do not need the
-Hugging Face or Blob credentials.
+The public link to share is the Vercel URL. Visitors do not need Google Cloud,
+Vercel Blob, or Secret Manager credentials.

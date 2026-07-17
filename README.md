@@ -1,13 +1,3 @@
----
-title: Dexter WLASL300 API
-emoji: 🤟
-colorFrom: blue
-colorTo: purple
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # Dexter Sign Language Recognition
 
 For a one-link GitHub-to-Vercel deployment, follow
@@ -15,8 +5,9 @@ For a one-link GitHub-to-Vercel deployment, follow
 [SETUP.md](SETUP.md). VS Code **Go Live** alone is
 not enough for local ASL Words because WLASL300 needs Python and its checkpoint
 is excluded from Git. In production, Vercel serves the frontend and small
-JavaScript routes while a Hugging Face Docker Space runs WLASL inference. The
-Space reads the restricted checkpoint from private Vercel Blob storage.
+JavaScript routes while Google Cloud Run runs WLASL inference. Cloud Run reads
+the restricted checkpoint from private Vercel Blob storage using a credential
+kept in Google Secret Manager.
 
 CSL Words runs the released CADT 75-class temporal model directly in the
 browser. ASL Words is a separate WLASL/I3D integration and does not share the
@@ -39,10 +30,10 @@ that block PowerShell's `npx.ps1`, use `npx.cmd` as shown there.
 
 ## Deploy
 
-The public application stays on one Vercel URL. Vercel exposes the Hugging Face
+The public application stays on one Vercel URL. Vercel exposes the Cloud Run
 backend URL through `/api/config`; the browser sends ASL clips directly to the
-Space. The restricted checkpoint and two official support files remain outside
-Git in a private Vercel Blob store. See
+service. The restricted checkpoint and two official support files remain
+outside Git in a private Vercel Blob store. See
 [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md).
 
 ## WLASL300 service

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const configHandler = require("../../api/config.js");
 const translateHandler = require("../../api/translate.js");
+const { parseBilingualTranslation } = translateHandler;
 
 function mockResponse() {
   return {
@@ -43,6 +44,47 @@ const translateResponse = mockResponse();
 await translateHandler({ method: "POST", body: { aslString: "ME GO" } }, translateResponse);
 assert.equal(translateResponse.statusCode, 503);
 assert.match(translateResponse.payload.error, /GEMINI_API_KEY/);
+
+assert.deepEqual(
+  parseBilingualTranslation('```json\n{"khmer":"ខ្ញុំទៅហាង។","english":"i am going to the store"}\n```'),
+  { khmer: "ខ្ញុំទៅហាង។", english: "I am going to the store." }
+);
+assert.equal(parseBilingualTranslation('{"khmer":"ខ្ញុំទៅហាង។"}'), null);
+
+let capturedGeminiRequest;
+process.env.GEMINI_API_KEY = "test-key";
+const previousFetch = globalThis.fetch;
+globalThis.fetch = async (_url, options) => {
+  capturedGeminiRequest = JSON.parse(options.body);
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return {
+        candidates: [{
+          content: {
+            parts: [
+              { thought: true, text: "Internal reasoning" },
+              { text: '{"khmer":"ខ្ញុំទៅហាង។","english":"I am going to the store."}' }
+            ]
+          }
+        }]
+      };
+    }
+  };
+};
+
+const bilingualResponse = mockResponse();
+await translateHandler({ method: "POST", body: { aslString: "ME GO STORE" } }, bilingualResponse);
+assert.equal(bilingualResponse.statusCode, 200);
+assert.deepEqual(bilingualResponse.payload.translation, {
+  khmer: "ខ្ញុំទៅហាង។",
+  english: "I am going to the store."
+});
+assert.match(capturedGeminiRequest.contents[0].parts[0].text, /Khmer and English/);
+assert.match(capturedGeminiRequest.contents[0].parts[0].text, /CSL\/KSL gloss/);
+
+globalThis.fetch = previousFetch;
 
 if (previousWlaslUrl == null) delete process.env.WLASL_API_URL;
 else process.env.WLASL_API_URL = previousWlaslUrl;
