@@ -40,8 +40,6 @@ const learnScript = fs.readFileSync(new URL("../../learn.js", import.meta.url), 
 assert.match(translatorHtml, /id=["']captureCountdown["']/, "Translator must expose the pre-capture countdown.");
 assert.doesNotMatch(translatorHtml, /id=["']cslStageSelect["']/, "CSL must use one fixed recognition pipeline without a stage selector.");
 assert.match(translatorScript, /CAPTURE_COUNTDOWN_STEP_MS\s*=\s*300/, "Countdown numbers must advance every 300 ms.");
-assert.match(translatorScript, /RECOGNITION_REACTION_DELAY_MS\s*=\s*500/, "Word cycles must retain the half-second reaction delay.");
-assert.match(translatorScript, /WLASL_WORD_DELAY_MS\s*=\s*RECOGNITION_REACTION_DELAY_MS/, "ASL Words must use the shared half-second delay.");
 assert.match(translatorScript, /STATIC_HOLD_DURATION_MS\s*=\s*260/, "Static letters must not require a long hold.");
 assert.match(translatorScript, /STATIC_RELEASE_DURATION_MS\s*=\s*160/, "Different letters must rearm quickly.");
 assert.match(translatorScript, /MIN_CAPTURE_HAND_CONFIDENCE\s*=\s*0\.65/, "Landmark modes must require reliable hand tracking.");
@@ -85,29 +83,28 @@ assert.match(
 );
 assert.match(
   translatorScript,
+  /const visualOnly\s*=\s*currentTrackingMode\s*===\s*["']asl_word["']/,
+  "The ASL-word countdown must be visual-only."
+);
+assert.match(
+  translatorScript,
   /const isWordMode\s*=\s*currentTrackingMode\s*===\s*["']asl_word["']\s*\|\|\s*currentTrackingMode\s*===\s*["']csl_word["']/,
-  "ASL and CSL Words must share the same countdown presentation."
+  "ASL and CSL Words must share one countdown presentation."
 );
-assert.match(translatorScript, /RGB capture starts automatically/, "The ASL countdown must not instruct users to satisfy a hand-tracking gate.");
-assert.match(
+assert.doesNotMatch(
   translatorScript,
-  /const ignoresHandTracking\s*=\s*currentTrackingMode\s*===\s*["']asl_word["']\s*&&\s*wlaslBackendReady/,
-  "The ASL-word countdown must explicitly ignore MediaPipe hand visibility."
-);
-assert.match(
-  translatorScript,
-  /\(!ignoresHandTracking\s*&&\s*!latestHandsVisible\)/,
-  "Only landmark-driven modes may gate or cancel a countdown when hands are absent."
+  /Recognition active\s*·/,
+  "ASL Words must not use a different countdown label from CSL Words."
 );
 assert.match(
   translatorScript,
-  /currentTrackingMode\s*===\s*["']asl_word["']\s*&&\s*wlaslBackendReady[\s\S]{0,360}startCaptureCountdown\(\)/,
-  "ASL Words must start its countdown automatically without waiting for a skeleton."
+  /\|\| !latestHandsVisible\s*\n\s*\) return;/,
+  "Every visible countdown, including ASL Words, must wait for tracked hands."
 );
 assert.match(
   translatorScript,
-  /if \(ignoresHandTracking\) \{[\s\S]{0,180}startWlaslCaptureLoop\(\)/,
-  "ASL Words must begin the RGB clip when its countdown completes."
+  /if \(!latestHandsVisible\) \{\s*if \(captureCountdownTimer\) cancelCaptureCountdown\(\);[\s\S]{0,160}showWaitingForInputGuide\(\);/,
+  "ASL Words must cancel its visual timer and return to waiting when idle."
 );
 assert.match(translatorScript, /lockRecognition:\s*false/, "WLASL results must not use the timer-test hand release gate.");
 assert.doesNotMatch(
@@ -129,30 +126,16 @@ assert.doesNotMatch(
 );
 assert.match(
   translatorScript,
-  /if \(currentTrackingMode !== ["']asl_word["'] \|\| wlaslBackendReady\) return false;/,
-  "The WLASL RGB path must not initialize the optional MediaPipe pose model."
+  /if \(currentTrackingMode === ["']asl_word["'] && poseTracker\)/,
+  "Pose detection must remain isolated to the optional ASL landmark path."
 );
+assert.doesNotMatch(translatorScript, /if \(!captureIsActive \|\| !wlaslBackendReady/, "Countdown state must not gate ASL-word recording.");
+assert.match(translatorScript, /if \(visualOnly\) return;/, "ASL-word countdown completion must not clear recognition state.");
 assert.match(
   translatorScript,
-  /if \(currentModeNeedsPoseTracker\(\) && poseTracker\)/,
-  "Pose detection must remain isolated to the optional legacy ASL landmark path."
+  /shouldSubmitAslWordClip\(\{ clipSize: clip\.size, trackedHandFrames \}\)/,
+  "ASL Words must reject clips that contain no sustained hand tracking before inference."
 );
-assert.match(
-  translatorScript,
-  /\|\| !captureIsActive\s*\n\s*\) return;/,
-  "ASL-word recording must begin only after the visible countdown."
-);
-assert.match(
-  translatorScript,
-  /scheduleNextWlaslCapture\(\);[\s\S]{0,100}if \(clip\.size > 0\)/,
-  "Each non-empty RGB clip must enter another timed cycle without a landmark gate."
-);
-assert.match(
-  translatorScript,
-  /setTimeout\(\(\) => \{[\s\S]{0,180}prepareForNextCapture\(\);[\s\S]{0,80}WLASL_WORD_DELAY_MS/,
-  "ASL Words must automatically restart after the half-second inter-word delay."
-);
-assert.doesNotMatch(translatorScript, /wlaslTrackedHandFrames|shouldSubmitAslWordClip/, "MediaPipe frames must not filter ASL RGB clips.");
 assert.match(
   translatorScript,
   /else if \(latestHandsVisible\) \{\s*analyzeMovement\(detectedHands, detectedPose, currentTimeMs\);/,
@@ -162,10 +145,9 @@ assert.match(translatorScript, /if \(!captureIsActive\)/, "Frame processing must
 assert.match(translatorStyles, /\.video-container\.is-dimmed::after/, "Inactive camera states must be visibly dimmed.");
 assert.match(
   translatorScript,
-  /const wordModeIsIdle\s*=\s*currentTrackingMode\s*===\s*["']csl_word["']/,
-  "Only CSL may use missing landmarks to dim the camera; ASL dimming follows its timed capture state."
+  /const wordModeIsIdle\s*=\s*\(currentTrackingMode\s*===\s*["']asl_word["']\s*\|\|\s*currentTrackingMode\s*===\s*["']csl_word["']\)/,
+  "ASL and CSL word modes must both dim the camera when no hands are visible."
 );
-assert.match(translatorScript, /wordModeIsIdle\s*\|\|\s*!captureIsActive/, "Countdowns and inter-word delays must dim inactive capture states.");
 assert.match(
   translatorScript,
   /latestHandsVisible\s*=\s*hasVisibleHandLandmarks\(detectedHands\);\s*syncCameraCaptureAppearance\(\);/,

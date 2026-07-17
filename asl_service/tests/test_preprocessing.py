@@ -36,20 +36,20 @@ class WlaslContractTests(unittest.TestCase):
         self.assertGreaterEqual(indices[-1], 70)
         self.assertTrue(np.all(np.diff(indices) == 1))
 
-    def test_webcam_frame_keeps_its_aspect_ratio_before_center_crop(self):
+    def test_webcam_frame_matches_the_square_wlasl_contract(self):
         frame = np.zeros((360, 640, 3), dtype=np.uint8)
         with patch("asl_service.preprocessing.cv2.resize", wraps=cv2.resize) as resize:
             crop = _resize_and_crop(frame)
 
-        self.assertEqual(resize.call_args_list[0].args[1], (455, 256))
+        self.assertEqual(resize.call_args_list[0].args[1], (256, 256))
         self.assertEqual(crop.shape, (224, 224, 3))
 
-    def test_portrait_frame_keeps_its_aspect_ratio_before_center_crop(self):
+    def test_portrait_frame_matches_the_square_wlasl_contract(self):
         frame = np.zeros((640, 360, 3), dtype=np.uint8)
         with patch("asl_service.preprocessing.cv2.resize", wraps=cv2.resize) as resize:
             crop = _resize_and_crop(frame)
 
-        self.assertEqual(resize.call_args_list[0].args[1], (256, 455))
+        self.assertEqual(resize.call_args_list[0].args[1], (256, 256))
         self.assertEqual(crop.shape, (224, 224, 3))
 
     def test_wlasl300_label_contract(self):

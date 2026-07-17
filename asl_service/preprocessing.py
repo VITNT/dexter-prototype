@@ -83,21 +83,9 @@ def prepare_video(video_path: str) -> tuple[torch.Tensor, float]:
 
 
 def _resize_and_crop(frame: np.ndarray) -> np.ndarray:
-    # Keep the signer at the proportions seen by the released checkpoint.
-    # Stretching a 16:9 webcam frame to 1:1 changes hand trajectories and was
-    # measured to cause a large accuracy regression. Resize the short edge,
-    # then take the same square center crop used by WLASL evaluation.
-    height, width = frame.shape[:2]
-    scale = RESIZE_SIZE / min(height, width)
-    resized = cv2.resize(
-        frame,
-        (round(width * scale), round(height * scale)),
-        interpolation=cv2.INTER_LINEAR,
-    )
-    height, width = resized.shape[:2]
-    top = max(0, (height - IMAGE_SIZE) // 2)
-    left = max(0, (width - IMAGE_SIZE) // 2)
-    crop = resized[top : top + IMAGE_SIZE, left : left + IMAGE_SIZE]
-    if crop.shape[:2] != (IMAGE_SIZE, IMAGE_SIZE):
-        crop = cv2.resize(crop, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_LINEAR)
-    return crop
+    # Official WLASL clips were normalized to a square before the model's
+    # 224x224 center crop. Match that contract while retaining the full signer;
+    # aspect-preserving center crops remove lateral hand trajectories.
+    resized = cv2.resize(frame, (RESIZE_SIZE, RESIZE_SIZE), interpolation=cv2.INTER_LINEAR)
+    offset = (RESIZE_SIZE - IMAGE_SIZE) // 2
+    return resized[offset : offset + IMAGE_SIZE, offset : offset + IMAGE_SIZE]
