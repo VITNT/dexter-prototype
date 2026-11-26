@@ -188,7 +188,7 @@ async function initializeMediaPipe() {
     }
 
     try {
-        const registryResponse = await fetch('./ksl-words/submodel-registry.json');
+        const registryResponse = await fetch('./csl-words/submodel-registry.json');
         if (registryResponse.ok) {
             const registryConfig = await registryResponse.json();
             for (const [routeKey, paths] of Object.entries(registryConfig)) {
